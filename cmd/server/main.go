@@ -31,7 +31,7 @@ const (
 const queueCapacity = 1024
 
 func main() {
-	addr := flag.String("addr", ":4000", "TCP listen address")
+	addr := flag.String("addr", "127.0.0.1:4000", "TCP listen address")
 	flag.Parse()
 
 	q := queue.New(queueCapacity)
