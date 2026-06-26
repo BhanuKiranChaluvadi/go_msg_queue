@@ -21,6 +21,7 @@ const roleConsumer = 'C'
 func main() {
 	output := flag.String("out", "", "output file path (required)")
 	addr := flag.String("addr", "localhost:4000", "queue server address")
+	stream := flag.String("stream", "default", "stream id to subscribe to")
 	flag.Parse()
 
 	if *output == "" {
@@ -43,8 +44,11 @@ func main() {
 	if err := bw.WriteByte(roleConsumer); err != nil {
 		log.Fatalf("write role: %v", err)
 	}
+	if err := wire.WriteID(bw, *stream); err != nil {
+		log.Fatalf("write stream id: %v", err)
+	}
 	if err := bw.Flush(); err != nil {
-		log.Fatalf("flush role: %v", err)
+		log.Fatalf("flush handshake: %v", err)
 	}
 
 	br := bufio.NewReader(conn)
@@ -71,5 +75,5 @@ func main() {
 	if err := f.Sync(); err != nil {
 		log.Fatalf("sync output: %v", err)
 	}
-	log.Printf("writer done: wrote %d frames to %s", written, *output)
+	log.Printf("writer done: wrote %d frames from stream %q to %s", written, *stream, *output)
 }

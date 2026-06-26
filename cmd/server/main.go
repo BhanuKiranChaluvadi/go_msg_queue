@@ -1,7 +1,7 @@
 // Command server is the queue broker. It accepts TCP connections, each of which
-// declares a role with a single leading byte ('P' producer, 'C' consumer), then
-// moves length-prefixed frames from producers into a bounded in-memory FIFO and
-// out to the consumer in order. Standard library only.
+// declares a role ('P' producer, 'C' consumer) and a stream id, then moves
+// length-prefixed frames from each producer into a per-stream bounded FIFO and
+// out to that stream's consumer in order. Standard library only.
 package main
 
 import (
@@ -17,7 +17,7 @@ import (
 	"syscall"
 	"time"
 
-	"filequeue/internal/queue"
+	"filequeue/internal/broker"
 	"filequeue/internal/wire"
 )
 
@@ -27,16 +27,17 @@ const (
 	roleConsumer = 'C'
 )
 
-// queueCapacity is the number of frames buffered before Push blocks. Combined
-// with wire.MaxFrameSize it bounds broker memory: cap * MaxFrameSize.
+// queueCapacity is the number of frames buffered per stream before Push blocks.
 const queueCapacity = 1024
 
 func main() {
 	addr := flag.String("addr", "127.0.0.1:4000", "TCP listen address")
 	idle := flag.Duration("idle", 30*time.Second, "per-connection idle read timeout; 0 disables")
+	maxStreams := flag.Int("max-streams", 256, "maximum concurrent streams; 0 means unlimited")
+	attachTimeout := flag.Duration("attach-timeout", 10*time.Second, "how long a consumer waits for an absent producer; 0 waits forever")
 	flag.Parse()
 
-	q := queue.New(queueCapacity)
+	reg := broker.NewRegistry(queueCapacity, *maxStreams)
 
 	ln, err := net.Listen("tcp", *addr)
 	if err != nil {
@@ -51,8 +52,8 @@ func main() {
 		<-sig
 		log.Print("shutdown signal received: draining")
 		closing.Store(true)
-		ln.Close() // unblock Accept
-		q.Close()  // let the consumer drain and finish
+		ln.Close()     // unblock Accept
+		reg.CloseAll() // let consumers drain and finish
 	}()
 
 	for {
@@ -64,7 +65,7 @@ func main() {
 			log.Printf("accept: %v", err)
 			continue
 		}
-		go handleConn(conn, q, *idle)
+		go handleConn(conn, reg, *idle, *attachTimeout)
 	}
 }
 
@@ -79,9 +80,10 @@ func touchDeadline(conn net.Conn, idle time.Duration) {
 	_ = conn.SetReadDeadline(time.Now().Add(idle))
 }
 
-// handleConn dispatches a single connection based on its declared role. A
-// recovered panic is confined to this connection so the accept loop survives.
-func handleConn(conn net.Conn, q *queue.Queue, idle time.Duration) {
+// handleConn dispatches a single connection based on its declared role and
+// stream id. A recovered panic is confined to this connection so the accept loop
+// survives.
+func handleConn(conn net.Conn, reg *broker.Registry, idle, attachTimeout time.Duration) {
 	defer conn.Close()
 	defer func() {
 		if r := recover(); r != nil {
@@ -96,42 +98,66 @@ func handleConn(conn net.Conn, q *queue.Queue, idle time.Duration) {
 		log.Printf("read role: %v", err)
 		return
 	}
+	touchDeadline(conn, idle)
+	id, err := wire.ReadID(br)
+	if err != nil {
+		log.Printf("read stream id from %s: %v", conn.RemoteAddr(), err)
+		return
+	}
 
 	switch role {
 	case roleProducer:
-		handleProducer(conn, br, q, idle)
+		handleProducer(conn, br, reg, id, idle)
 	case roleConsumer:
-		handleConsumer(conn, q)
+		handleConsumer(conn, reg, id, attachTimeout)
 	default:
 		log.Printf("unknown role byte %q from %s", role, conn.RemoteAddr())
 	}
 }
 
-// handleProducer reads frames until the producer half-closes, then closes the
-// queue to signal the consumer that the stream is complete. The read deadline
-// is refreshed before each frame so a stalled producer is dropped without
-// penalising a slow-but-progressing one.
-func handleProducer(conn net.Conn, br *bufio.Reader, q *queue.Queue, idle time.Duration) {
+// handleProducer reads frames for stream id until the producer half-closes, then
+// detaches, which closes the stream's queue so its consumer can finish. The read
+// deadline is refreshed before each frame.
+func handleProducer(conn net.Conn, br *bufio.Reader, reg *broker.Registry, id string, idle time.Duration) {
+	q, err := reg.AttachProducer(id)
+	if err != nil {
+		log.Printf("producer %q: %v", id, err)
+		return
+	}
+	defer reg.DetachProducer(id)
+
 	for {
 		touchDeadline(conn, idle)
 		payload, err := wire.ReadFrame(br)
 		if err != nil {
 			if !errors.Is(err, io.EOF) {
-				log.Printf("producer read: %v", err)
+				log.Printf("producer %q read: %v", id, err)
 			}
 			break
 		}
 		if err := q.Push(payload); err != nil {
-			log.Printf("producer push: %v", err)
+			log.Printf("producer %q push: %v", id, err)
 			break
 		}
 	}
-	q.Close()
 }
 
-// handleConsumer writes frames to the consumer until the queue is closed and
-// drained, then flushes.
-func handleConsumer(conn net.Conn, q *queue.Queue) {
+// handleConsumer writes stream id's frames to the consumer until the stream is
+// closed and drained, then flushes. It first waits up to attachTimeout for a
+// producer to appear, so a consumer for an absent stream does not block forever.
+func handleConsumer(conn net.Conn, reg *broker.Registry, id string, attachTimeout time.Duration) {
+	q, err := reg.AttachConsumer(id)
+	if err != nil {
+		log.Printf("consumer %q: %v", id, err)
+		return
+	}
+	defer reg.DetachConsumer(id)
+
+	if !reg.WaitReady(id, attachTimeout) {
+		log.Printf("consumer %q: no producer within %s", id, attachTimeout)
+		return
+	}
+
 	bw := bufio.NewWriter(conn)
 	for {
 		payload, ok := q.Pop()
@@ -139,11 +165,11 @@ func handleConsumer(conn net.Conn, q *queue.Queue) {
 			break
 		}
 		if err := wire.WriteFrame(bw, payload); err != nil {
-			log.Printf("consumer write: %v", err)
+			log.Printf("consumer %q write: %v", id, err)
 			return
 		}
 	}
 	if err := bw.Flush(); err != nil {
-		log.Printf("consumer flush: %v", err)
+		log.Printf("consumer %q flush: %v", id, err)
 	}
 }
