@@ -24,6 +24,7 @@ const chunkSize = 32 * 1024
 func main() {
 	input := flag.String("in", "", "input file path (required)")
 	addr := flag.String("addr", "localhost:4000", "queue server address")
+	stream := flag.String("stream", "default", "stream id to publish to")
 	flag.Parse()
 
 	if *input == "" {
@@ -45,6 +46,9 @@ func main() {
 	bw := bufio.NewWriter(conn)
 	if err := bw.WriteByte(roleProducer); err != nil {
 		log.Fatalf("write role: %v", err)
+	}
+	if err := wire.WriteID(bw, *stream); err != nil {
+		log.Fatalf("write stream id: %v", err)
 	}
 
 	buf := make([]byte, chunkSize)
@@ -68,5 +72,5 @@ func main() {
 	if err := bw.Flush(); err != nil {
 		log.Fatalf("flush: %v", err)
 	}
-	log.Printf("reader done: sent %d frames", sent)
+	log.Printf("reader done: sent %d frames to stream %q", sent, *stream)
 }

@@ -173,3 +173,13 @@ func (r *Registry) gcLocked(id string, s *stream) {
 		delete(r.streams, id)
 	}
 }
+
+// CloseAll closes every live stream's queue so consumers drain and finish. It is
+// used during graceful shutdown.
+func (r *Registry) CloseAll() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, s := range r.streams {
+		s.q.Close()
+	}
+}
