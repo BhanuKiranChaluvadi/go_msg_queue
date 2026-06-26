@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"filequeue/internal/broker"
+	"filequeue/internal/queue"
 	"filequeue/internal/wire"
 )
 
@@ -143,9 +144,8 @@ func handleConn(conn net.Conn, reg *broker.Registry, idle, attachTimeout time.Du
 	}
 }
 
-// handleProducer reads frames for stream id until the producer half-closes, then
-// detaches, which closes the stream's queue so its consumer can finish. The read
-// deadline is refreshed before each frame.
+// handleProducer attaches the producer for id, pumps its frames into the stream
+// queue, and detaches on exit (which closes the queue so the consumer finishes).
 func handleProducer(conn net.Conn, br *bufio.Reader, reg *broker.Registry, id string, idle time.Duration) {
 	q, err := reg.AttachProducer(id)
 	if err != nil {
@@ -154,26 +154,13 @@ func handleProducer(conn net.Conn, br *bufio.Reader, reg *broker.Registry, id st
 	}
 	defer reg.DetachProducer(id)
 
-	for {
-		touchReadDeadline(conn, idle)
-		payload, err := wire.ReadFrame(br)
-		if err != nil {
-			if !errors.Is(err, io.EOF) {
-				log.Printf("producer %q read: %v", id, err)
-			}
-			break
-		}
-		if err := q.Push(payload); err != nil {
-			log.Printf("producer %q push: %v", id, err)
-			break
-		}
+	if err := pumpIn(br, q, func() { touchReadDeadline(conn, idle) }); err != nil {
+		log.Printf("producer %q: %v", id, err)
 	}
 }
 
-// handleConsumer writes stream id's frames to the consumer until the stream is
-// closed and drained, then flushes. It first waits up to attachTimeout for a
-// producer to appear, so a consumer for an absent stream does not block forever.
-// A write deadline is refreshed before each frame so a stalled reader is dropped.
+// handleConsumer attaches the consumer for id, waits up to attachTimeout for a
+// producer, then pumps the stream's frames out to the connection.
 func handleConsumer(conn net.Conn, reg *broker.Registry, id string, idle, attachTimeout time.Duration) {
 	q, err := reg.AttachConsumer(id)
 	if err != nil {
@@ -187,20 +174,52 @@ func handleConsumer(conn net.Conn, reg *broker.Registry, id string, idle, attach
 		return
 	}
 
-	bw := bufio.NewWriter(conn)
+	if err := pumpOut(conn, q, func() { touchWriteDeadline(conn, idle) }); err != nil {
+		log.Printf("consumer %q: %v", id, err)
+	}
+}
+
+// pumpIn copies frames from r into q until r reaches a clean EOF, calling
+// beforeFrame (if non-nil) to refresh the read deadline before each frame. It is
+// transport-agnostic so it can be unit-tested against any io.Reader.
+func pumpIn(r io.Reader, q *queue.Queue, beforeFrame func()) error {
+	for {
+		if beforeFrame != nil {
+			beforeFrame()
+		}
+		payload, err := wire.ReadFrame(r)
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				return nil
+			}
+			return err
+		}
+		if err := q.Push(payload); err != nil {
+			return err
+		}
+	}
+}
+
+// pumpOut copies frames from q to w until q is closed and drained, calling
+// beforeFrame (if non-nil) to refresh the write deadline before each frame, then
+// flushes. It is transport-agnostic so it can be unit-tested against any
+// io.Writer.
+func pumpOut(w io.Writer, q *queue.Queue, beforeFrame func()) error {
+	bw := bufio.NewWriter(w)
 	for {
 		payload, ok := q.Pop()
 		if !ok {
 			break
 		}
-		touchWriteDeadline(conn, idle)
+		if beforeFrame != nil {
+			beforeFrame()
+		}
 		if err := wire.WriteFrame(bw, payload); err != nil {
-			log.Printf("consumer %q write: %v", id, err)
-			return
+			return err
 		}
 	}
-	touchWriteDeadline(conn, idle)
-	if err := bw.Flush(); err != nil {
-		log.Printf("consumer %q flush: %v", id, err)
+	if beforeFrame != nil {
+		beforeFrame()
 	}
+	return bw.Flush()
 }
