@@ -369,27 +369,56 @@ Conventions:
   stay the same; only the full-queue policy (block vs. shed) changes, selected by
   config.
 
-### 11.3 Scaling — multiple concurrent streams
+### 11.3 Scaling — multiple concurrent streams (implemented)
 
-The core copies **one** file (one reader → one FIFO → one writer). Running many
-independent reader→writer pairs through one broker at once (e.g. one stream per
-phone call, 100k+ calls/day) requires three additions, because a single shared
-FIFO would **interleave** frames from different producers and corrupt every output:
+The core copies **one** file (one reader → one FIFO → one writer). Many
+independent reader→writer pairs now run through one broker at once (e.g. one
+stream per phone call) without interleaving, because each stream gets its own
+bounded FIFO. A single shared FIFO would mix frames from different producers and
+corrupt every output; the per-stream registry prevents that.
 
-1. **Identity** — extend the frame header with a `StreamID` so each frame is
-   attributable to a stream.
-2. **Routing** — the broker becomes a `map[StreamID]*queue` instead of a single
-   `*queue`; frames are sorted into the queue for their stream.
-3. **Rendezvous** — a consumer subscribes by `StreamID` (sent on connect) so the
-   broker pairs it with the matching producer's queue.
+**Connection handshake.** The frame format is unchanged. Instead of tagging every
+frame, each connection declares its identity once, immediately after connecting:
 
-This is the Kafka *topic/partition* model: each call is a partition, and a broker
-fleet shards partitions across machines via consistent hashing. Stateless framing
-means brokers scale horizontally by partition; a per-partition WAL gives recovery.
+1. one **role byte** — `'P'` (producer) or `'C'` (consumer);
+2. one **StreamID frame** — an ordinary length-prefixed frame carrying the id
+   (`wire.WriteID` / `wire.ReadID`);
+3. then the normal stream of data frames.
 
-**Design constraint honoured in the core:** connection handling is written so no
-global mutable state assumes a single stream, making the `StreamID` + routing-map
-change purely additive rather than a rewrite.
+Because each TCP connection carries exactly one stream, per-connection identity is
+sufficient and cheaper than a per-frame `StreamID` header.
+
+**StreamID validation.** Ids are tokens of 1–64 bytes drawn from
+`[A-Za-z0-9._-]` (`wire.MaxIDSize`, `wire.ValidID`). Anything empty, over-length,
+or out-of-charset is rejected at the boundary, so ids are safe to log and to use
+as map keys.
+
+**Routing & lifecycle (`internal/broker`).** The broker is a
+`map[StreamID]*queue.Queue` guarded by a mutex. The registry enforces **one
+producer and one consumer per stream** (`ErrProducerExists` / `ErrConsumerExists`)
+and caps the live-stream count (`ErrTooManyStreams`, `-max-streams`). A stream is
+created on first attach (producer or consumer, either may arrive first) and
+garbage-collected only once its producer has detached **and** its consumer has
+drained every buffered frame — so a late consumer never loses data and the global
+close can never truncate another stream. `CloseAll` closes every queue for
+graceful shutdown.
+
+**Attach timeout.** A consumer for a stream with no producer would otherwise
+block forever. `WaitReady` plus the server's `-attach-timeout` bound that wait;
+on timeout the consumer detaches and exits cleanly with an empty output.
+
+**Backward compatibility.** `reader`/`writer` default to `-stream "default"`, so
+the original single-stream pipeline and its tests run unchanged.
+
+**Scope boundary (not built — overkill for this assignment):** fan-out broadcast,
+work-queue load-balancing across multiple consumers, per-frame multiplexing on one
+connection, and per-stream auth are explicitly out of scope.
+
+**Further horizontal scaling.** This is the Kafka *topic/partition* model: each
+call is a partition, and a broker fleet would shard partitions across machines via
+consistent hashing. Stateless framing means brokers scale horizontally by
+partition; a per-partition WAL would give recovery. Those are deployment concerns
+beyond the single-process broker delivered here.
 
 ### 11.4 Cost / cloud billing
 
@@ -434,11 +463,12 @@ change purely additive rather than a rewrite.
 
 ## 14. Open Questions
 
-1. ~~**Multiple concurrent streams**~~ — **Resolved.** Core is strictly one reader /
-   one writer per run. Multi-stream (StreamID + routing map + subscribe-by-ID) is a
-   documented additive extension; see [§11.3](#113-scaling--multiple-concurrent-streams).
-   Broker connection handling avoids single-stream global state so the extension
-   stays additive.
+1. ~~**Multiple concurrent streams**~~ — **Implemented.** A role+StreamID connection
+   handshake routes each producer/consumer to its own per-stream FIFO via the
+   `internal/broker` registry (single producer + single consumer per stream,
+   ref-counted GC, `-max-streams` cap, `-attach-timeout`). `reader`/`writer`
+   default to the `"default"` stream for backward compatibility. See
+   [§11.3](#113-scaling--multiple-concurrent-streams-implemented).
 2. **Chunk size default** — 32 KiB balances syscall count vs. latency; confirm if a
    different target matters for the demo.
 3. Should the **core** demonstrate reconnection (11.1) for the interview, or is the
