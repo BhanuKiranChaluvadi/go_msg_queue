@@ -21,6 +21,51 @@ const roleProducer = 'P'
 // wire.MaxFrameSize. 32 KiB balances syscall count against latency.
 const chunkSize = 32 * 1024
 
+// copyFileToConn reads r in chunk-sized blocks and writes each block as a single
+// frame to w, returning the number of frames written. It does not flush w; the
+// caller owns the handshake and the final flush. A short final read is treated
+// as a normal end of input, not an error.
+func copyFileToConn(r io.Reader, w io.Writer, chunk int) (int, error) {
+	buf := make([]byte, chunk)
+	sent := 0
+	for {
+		n, err := io.ReadFull(r, buf)
+		if n > 0 {
+			if werr := wire.WriteFrame(w, buf[:n]); werr != nil {
+				return sent, werr
+			}
+			sent++
+		}
+		if err == io.EOF || err == io.ErrUnexpectedEOF {
+			return sent, nil
+		}
+		if err != nil {
+			return sent, err
+		}
+	}
+}
+
+// runProducer performs the producer handshake on conn (role byte + stream id),
+// streams src as frames via copyFileToConn, and flushes. It is the full
+// protocol sequence with all I/O injected, so it is testable without a socket.
+func runProducer(conn io.Writer, src io.Reader, stream string, chunk int) (int, error) {
+	bw := bufio.NewWriter(conn)
+	if err := bw.WriteByte(roleProducer); err != nil {
+		return 0, err
+	}
+	if err := wire.WriteID(bw, stream); err != nil {
+		return 0, err
+	}
+	sent, err := copyFileToConn(src, bw, chunk)
+	if err != nil {
+		return sent, err
+	}
+	if err := bw.Flush(); err != nil {
+		return sent, err
+	}
+	return sent, nil
+}
+
 func main() {
 	input := flag.String("in", "", "input file path (required)")
 	addr := flag.String("addr", "localhost:4000", "queue server address")
@@ -43,34 +88,9 @@ func main() {
 	}
 	defer conn.Close()
 
-	bw := bufio.NewWriter(conn)
-	if err := bw.WriteByte(roleProducer); err != nil {
-		log.Fatalf("write role: %v", err)
-	}
-	if err := wire.WriteID(bw, *stream); err != nil {
-		log.Fatalf("write stream id: %v", err)
-	}
-
-	buf := make([]byte, chunkSize)
-	sent := 0
-	for {
-		n, err := io.ReadFull(f, buf)
-		if n > 0 {
-			if werr := wire.WriteFrame(bw, buf[:n]); werr != nil {
-				log.Fatalf("write frame: %v", werr)
-			}
-			sent++
-		}
-		if err == io.EOF || err == io.ErrUnexpectedEOF {
-			break
-		}
-		if err != nil {
-			log.Fatalf("read input: %v", err)
-		}
-	}
-
-	if err := bw.Flush(); err != nil {
-		log.Fatalf("flush: %v", err)
+	sent, err := runProducer(conn, f, *stream, chunkSize)
+	if err != nil {
+		log.Fatalf("stream input: %v", err)
 	}
 	log.Printf("reader done: sent %d frames to stream %q", sent, *stream)
 }

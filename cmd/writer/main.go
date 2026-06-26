@@ -18,6 +18,44 @@ import (
 // roleConsumer mirrors the broker's role byte for a consumer connection.
 const roleConsumer = 'C'
 
+// copyConnToFile reads frames from r until EOF and writes each payload to w,
+// returning the number of frames written. A clean EOF is success; any other
+// read error is returned. It does not flush or sync w; the caller owns that.
+func copyConnToFile(r io.Reader, w io.Writer) (int, error) {
+	written := 0
+	for {
+		payload, err := wire.ReadFrame(r)
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				return written, nil
+			}
+			return written, err
+		}
+		if _, err := w.Write(payload); err != nil {
+			return written, err
+		}
+		written++
+	}
+}
+
+// runConsumer performs the consumer handshake on handshake (role byte + stream
+// id, flushed) and then drains frames into dst via copyConnToFile. All I/O is
+// injected so the full protocol sequence is testable without a socket; in main
+// the handshake and frames writers are the same connection.
+func runConsumer(handshake io.Writer, frames io.Reader, dst io.Writer, stream string) (int, error) {
+	bw := bufio.NewWriter(handshake)
+	if err := bw.WriteByte(roleConsumer); err != nil {
+		return 0, err
+	}
+	if err := wire.WriteID(bw, stream); err != nil {
+		return 0, err
+	}
+	if err := bw.Flush(); err != nil {
+		return 0, err
+	}
+	return copyConnToFile(bufio.NewReader(frames), dst)
+}
+
 func main() {
 	output := flag.String("out", "", "output file path (required)")
 	addr := flag.String("addr", "localhost:4000", "queue server address")
@@ -40,33 +78,10 @@ func main() {
 	}
 	defer conn.Close()
 
-	bw := bufio.NewWriter(conn)
-	if err := bw.WriteByte(roleConsumer); err != nil {
-		log.Fatalf("write role: %v", err)
-	}
-	if err := wire.WriteID(bw, *stream); err != nil {
-		log.Fatalf("write stream id: %v", err)
-	}
-	if err := bw.Flush(); err != nil {
-		log.Fatalf("flush handshake: %v", err)
-	}
-
-	br := bufio.NewReader(conn)
 	fw := bufio.NewWriter(f)
-
-	written := 0
-	for {
-		payload, err := wire.ReadFrame(br)
-		if err != nil {
-			if errors.Is(err, io.EOF) {
-				break
-			}
-			log.Fatalf("read frame: %v", err)
-		}
-		if _, err := fw.Write(payload); err != nil {
-			log.Fatalf("write output: %v", err)
-		}
-		written++
+	written, err := runConsumer(conn, conn, fw, *stream)
+	if err != nil {
+		log.Fatalf("drain stream: %v", err)
 	}
 
 	if err := fw.Flush(); err != nil {
