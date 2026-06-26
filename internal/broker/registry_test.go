@@ -6,6 +6,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"filequeue/internal/queue"
 )
 
 func TestProducerConsumerShareQueue(t *testing.T) {
@@ -57,7 +59,7 @@ func TestProducerCloseDrains(t *testing.T) {
 	r := NewRegistry(4, 0)
 	q, _ := r.AttachProducer("a")
 	_ = q.Push([]byte("x"))
-	r.DetachProducer("a")
+	r.DetachProducer("a") // closes the queue
 
 	if got, ok := q.Pop(); !ok || string(got) != "x" {
 		t.Fatalf("drain buffered: got %q ok=%v", got, ok)
@@ -71,7 +73,7 @@ func TestLateConsumerDrainsThenGC(t *testing.T) {
 	r := NewRegistry(4, 0)
 	q, _ := r.AttachProducer("a")
 	_ = q.Push([]byte("buffered"))
-	r.DetachProducer("a")
+	r.DetachProducer("a") // producer done; stream must stay for the consumer
 
 	if got := r.Len(); got != 1 {
 		t.Fatalf("stream removed before consume; Len=%d", got)
@@ -114,6 +116,7 @@ func TestMaxStreams(t *testing.T) {
 
 func TestWaitReady(t *testing.T) {
 	r := NewRegistry(4, 0)
+	// Consumer creates the stream; no producer yet.
 	if _, err := r.AttachConsumer("a"); err != nil {
 		t.Fatalf("attach consumer: %v", err)
 	}
@@ -170,5 +173,30 @@ func TestConcurrentDistinctStreams(t *testing.T) {
 
 	if got := r.Len(); got != 0 {
 		t.Fatalf("Len=%d after all streams consumed, want 0", got)
+	}
+}
+
+func TestCloseAll(t *testing.T) {
+	r := NewRegistry(4, 0)
+	qa, _ := r.AttachProducer("a")
+	qb, _ := r.AttachProducer("b")
+	_ = qa.Push([]byte("a1"))
+	_ = qb.Push([]byte("b1"))
+
+	r.CloseAll()
+
+	// CloseAll closes every queue. Buffered frames stay drainable, then Pop
+	// reports the queue closed.
+	assertDrainsThenClosed(t, "a", qa)
+	assertDrainsThenClosed(t, "b", qb)
+}
+
+func assertDrainsThenClosed(t *testing.T, id string, q *queue.Queue) {
+	t.Helper()
+	if _, ok := q.Pop(); !ok {
+		t.Fatalf("stream %s: buffered frame lost after CloseAll", id)
+	}
+	if _, ok := q.Pop(); ok {
+		t.Fatalf("stream %s: queue still open after CloseAll", id)
 	}
 }
