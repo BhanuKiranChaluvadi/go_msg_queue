@@ -8,7 +8,7 @@ INPUT_FILE  := test/testdata/sample.txt
 OUTPUT_FILE := test/testdata/output.txt
 SERVER_ADDR := localhost:4000
 
-.PHONY: all build run test clean help
+.PHONY: all build run test race vet fmt vuln check clean help
 
 all: build
 
@@ -42,6 +42,29 @@ run: build
 ## test    — run all unit tests
 test:
 	go test ./...
+
+## race    — run all tests with the race detector (CI gold standard)
+race:
+	go test -race ./...
+
+## vet     — run go vet static analysis
+vet:
+	go vet ./...
+
+## fmt     — fail if any file is not gofmt-clean
+fmt:
+	@unformatted=$$(gofmt -l .); \
+	if [ -n "$$unformatted" ]; then \
+		echo "not gofmt-clean:"; echo "$$unformatted"; exit 1; \
+	fi
+
+## vuln    — scan for known vulnerabilities (stdlib equivalent of npm audit)
+vuln:
+	go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+
+## check   — run every CI quality gate locally (fmt, vet, build, race, vuln)
+check: fmt vet build race vuln
+	@echo "✓  all quality gates passed"
 
 ## clean   — remove compiled binaries and generated output file
 clean:
