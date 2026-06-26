@@ -114,6 +114,10 @@ func TestHandleConnRoundTrip(t *testing.T) {
 		bw := bufio.NewWriter(pCli)
 		_ = bw.WriteByte(roleProducer)
 		_ = wire.WriteID(bw, "s")
+		_ = bw.Flush()
+		if _, err := wire.ReadAck(pCli); err != nil {
+			return
+		}
 		_ = wire.WriteFrame(bw, []byte("hello"))
 		_ = wire.WriteFrame(bw, []byte("world"))
 		_ = bw.Flush()
@@ -135,6 +139,9 @@ func TestHandleConnRoundTrip(t *testing.T) {
 
 	_ = cCli.SetReadDeadline(time.Now().Add(2 * time.Second))
 	cr := bufio.NewReader(cCli)
+	if ack, err := wire.ReadAck(cr); err != nil || ack != wire.AckOK {
+		t.Fatalf("consumer ack = %q err=%v, want %q", ack, err, wire.AckOK)
+	}
 	for _, w := range []string{"hello", "world"} {
 		got, err := wire.ReadFrame(cr)
 		if err != nil || string(got) != w {
@@ -156,6 +163,9 @@ func TestHandleConsumerAttachTimeout(t *testing.T) {
 	_ = bw.WriteByte(roleConsumer)
 	_ = wire.WriteID(bw, "ghost")
 	_ = bw.Flush()
+	if ack, err := wire.ReadAck(cli); err != nil || ack != wire.AckOK {
+		t.Fatalf("consumer ack = %q err=%v, want %q", ack, err, wire.AckOK)
+	}
 
 	select {
 	case <-done:
@@ -190,6 +200,12 @@ func TestServeRoundTripAndGracefulStop(t *testing.T) {
 	pbw := bufio.NewWriter(pc)
 	_ = pbw.WriteByte(roleProducer)
 	_ = wire.WriteID(pbw, "s")
+	if err := pbw.Flush(); err != nil {
+		t.Fatalf("flush producer handshake: %v", err)
+	}
+	if ack, err := wire.ReadAck(pc); err != nil || ack != wire.AckOK {
+		t.Fatalf("producer ack = %q err=%v, want %q", ack, err, wire.AckOK)
+	}
 	_ = wire.WriteFrame(pbw, []byte("payload"))
 	if err := pbw.Flush(); err != nil {
 		t.Fatalf("flush producer: %v", err)
@@ -211,6 +227,9 @@ func TestServeRoundTripAndGracefulStop(t *testing.T) {
 	}
 	_ = cc.SetReadDeadline(time.Now().Add(2 * time.Second))
 	cr := bufio.NewReader(cc)
+	if ack, err := wire.ReadAck(cr); err != nil || ack != wire.AckOK {
+		t.Fatalf("consumer ack = %q err=%v, want %q", ack, err, wire.AckOK)
+	}
 	got, err := wire.ReadFrame(cr)
 	if err != nil || string(got) != "payload" {
 		t.Fatalf("consumer ReadFrame = %q err=%v, want %q", got, err, "payload")

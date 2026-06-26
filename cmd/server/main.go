@@ -193,9 +193,17 @@ func handleProducer(conn net.Conn, br *bufio.Reader, reg *broker.Registry, id st
 	q, err := reg.AttachProducer(id)
 	if err != nil {
 		log.Printf("producer %q: %v", id, err)
+		touchWriteDeadline(conn, idle)
+		_ = wire.WriteAck(conn, wire.AckBusy)
 		return
 	}
 	defer reg.DetachProducer(id)
+
+	touchWriteDeadline(conn, idle)
+	if err := wire.WriteAck(conn, wire.AckOK); err != nil {
+		log.Printf("producer %q: ack: %v", id, err)
+		return
+	}
 
 	if err := pumpIn(br, q, func() { touchReadDeadline(conn, idle) }); err != nil {
 		log.Printf("producer %q: %v", id, err)
@@ -208,9 +216,17 @@ func handleConsumer(conn net.Conn, reg *broker.Registry, id string, idle, attach
 	q, err := reg.AttachConsumer(id)
 	if err != nil {
 		log.Printf("consumer %q: %v", id, err)
+		touchWriteDeadline(conn, idle)
+		_ = wire.WriteAck(conn, wire.AckBusy)
 		return
 	}
 	defer reg.DetachConsumer(id)
+
+	touchWriteDeadline(conn, idle)
+	if err := wire.WriteAck(conn, wire.AckOK); err != nil {
+		log.Printf("consumer %q: ack: %v", id, err)
+		return
+	}
 
 	if !reg.WaitReady(id, attachTimeout) {
 		log.Printf("consumer %q: no producer within %s", id, attachTimeout)

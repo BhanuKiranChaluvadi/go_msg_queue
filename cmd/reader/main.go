@@ -6,6 +6,7 @@ package main
 import (
 	"bufio"
 	"flag"
+	"fmt"
 	"io"
 	"log"
 	"net"
@@ -68,9 +69,11 @@ func copyFileToConn(r io.Reader, w io.Writer, chunk int) (int, error) {
 }
 
 // runProducer performs the producer handshake on conn (role byte + stream id),
-// streams src as frames via copyFileToConn, and flushes. It is the full
-// protocol sequence with all I/O injected, so it is testable without a socket.
-func runProducer(conn io.Writer, src io.Reader, stream string, chunk int) (int, error) {
+// reads the server's one-byte acknowledgement, and — only if accepted — streams
+// src as frames via copyFileToConn and flushes. A busy ack aborts before any
+// data is sent. All I/O is injected, so the sequence is testable without a
+// socket.
+func runProducer(conn io.ReadWriter, src io.Reader, stream string, chunk int) (int, error) {
 	bw := bufio.NewWriter(conn)
 	if err := bw.WriteByte(roleProducer); err != nil {
 		return 0, err
@@ -78,6 +81,18 @@ func runProducer(conn io.Writer, src io.Reader, stream string, chunk int) (int, 
 	if err := wire.WriteID(bw, stream); err != nil {
 		return 0, err
 	}
+	if err := bw.Flush(); err != nil {
+		return 0, err
+	}
+
+	ack, err := wire.ReadAck(conn)
+	if err != nil {
+		return 0, fmt.Errorf("read server ack: %w", err)
+	}
+	if ack != wire.AckOK {
+		return 0, fmt.Errorf("server rejected stream %q (already in use)", stream)
+	}
+
 	sent, err := copyFileToConn(src, bw, chunk)
 	if err != nil {
 		return sent, err

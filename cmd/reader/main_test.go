@@ -66,8 +66,15 @@ func TestCopyFileToConnReturnsWriteError(t *testing.T) {
 }
 
 func TestRunProducerWritesHandshakeThenFrames(t *testing.T) {
-	var conn bytes.Buffer
-	frames, err := runProducer(&conn, bytes.NewReader([]byte("abcd")), "s1", 2)
+	var out bytes.Buffer
+	conn := struct {
+		io.Reader
+		io.Writer
+	}{
+		Reader: bytes.NewReader([]byte{wire.AckOK}),
+		Writer: &out,
+	}
+	frames, err := runProducer(conn, bytes.NewReader([]byte("abcd")), "s1", 2)
 	if err != nil {
 		t.Fatalf("runProducer: %v", err)
 	}
@@ -75,7 +82,7 @@ func TestRunProducerWritesHandshakeThenFrames(t *testing.T) {
 		t.Fatalf("sent %d frames, want 2", frames)
 	}
 
-	r := bytes.NewReader(conn.Bytes())
+	r := bytes.NewReader(out.Bytes())
 	role, err := r.ReadByte()
 	if err != nil || role != roleProducer {
 		t.Fatalf("role byte = %q err=%v, want %q", role, err, roleProducer)
@@ -97,5 +104,18 @@ func TestRunProducerWritesHandshakeThenFrames(t *testing.T) {
 	}
 	if string(got) != "abcd" {
 		t.Fatalf("payload = %q, want %q", got, "abcd")
+	}
+}
+
+func TestRunProducerFailsOnBusyAck(t *testing.T) {
+	conn := struct {
+		io.Reader
+		io.Writer
+	}{
+		Reader: bytes.NewReader([]byte{wire.AckBusy}),
+		Writer: io.Discard,
+	}
+	if _, err := runProducer(conn, bytes.NewReader([]byte("x")), "s1", 4); err == nil {
+		t.Fatal("expected an error when the server rejects with AckBusy")
 	}
 }

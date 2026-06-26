@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"io"
 	"testing"
 
 	"filequeue/internal/wire"
@@ -51,15 +52,23 @@ func TestCopyConnToFilePropagatesTruncatedFrame(t *testing.T) {
 }
 
 func TestRunConsumerHandshakeThenReassembles(t *testing.T) {
-	var frames bytes.Buffer
+	var serverToClient bytes.Buffer
+	serverToClient.WriteByte(wire.AckOK)
 	for _, p := range [][]byte{[]byte("ab"), []byte("cd")} {
-		if err := wire.WriteFrame(&frames, p); err != nil {
+		if err := wire.WriteFrame(&serverToClient, p); err != nil {
 			t.Fatalf("seed frame: %v", err)
 		}
 	}
 
 	var handshake, out bytes.Buffer
-	n, err := runConsumer(&handshake, &frames, &out, "s1")
+	conn := struct {
+		io.Reader
+		io.Writer
+	}{
+		Reader: &serverToClient,
+		Writer: &handshake,
+	}
+	n, err := runConsumer(conn, &out, "s1")
 	if err != nil {
 		t.Fatalf("runConsumer: %v", err)
 	}
@@ -78,5 +87,19 @@ func TestRunConsumerHandshakeThenReassembles(t *testing.T) {
 	id, err := wire.ReadID(hr)
 	if err != nil || id != "s1" {
 		t.Fatalf("stream id = %q err=%v, want %q", id, err, "s1")
+	}
+}
+
+func TestRunConsumerFailsOnBusyAck(t *testing.T) {
+	conn := struct {
+		io.Reader
+		io.Writer
+	}{
+		Reader: bytes.NewReader([]byte{wire.AckBusy}),
+		Writer: io.Discard,
+	}
+	var out bytes.Buffer
+	if _, err := runConsumer(conn, &out, "s1"); err == nil {
+		t.Fatal("expected an error when the server rejects with AckBusy")
 	}
 }

@@ -7,6 +7,7 @@ import (
 	"bufio"
 	"errors"
 	"flag"
+	"fmt"
 	"io"
 	"log"
 	"net"
@@ -60,12 +61,13 @@ func copyConnToFile(r io.Reader, w io.Writer) (int, error) {
 	}
 }
 
-// runConsumer performs the consumer handshake on handshake (role byte + stream
-// id, flushed) and then drains frames into dst via copyConnToFile. All I/O is
-// injected so the full protocol sequence is testable without a socket; in main
-// the handshake and frames writers are the same connection.
-func runConsumer(handshake io.Writer, frames io.Reader, dst io.Writer, stream string) (int, error) {
-	bw := bufio.NewWriter(handshake)
+// runConsumer performs the consumer handshake on conn (role byte + stream id,
+// flushed), reads the server's one-byte acknowledgement, and — only if accepted
+// — drains frames into dst via copyConnToFile. A busy ack aborts before any
+// data is read. All I/O is injected so the sequence is testable without a
+// socket.
+func runConsumer(conn io.ReadWriter, dst io.Writer, stream string) (int, error) {
+	bw := bufio.NewWriter(conn)
 	if err := bw.WriteByte(roleConsumer); err != nil {
 		return 0, err
 	}
@@ -75,7 +77,17 @@ func runConsumer(handshake io.Writer, frames io.Reader, dst io.Writer, stream st
 	if err := bw.Flush(); err != nil {
 		return 0, err
 	}
-	return copyConnToFile(bufio.NewReader(frames), dst)
+
+	br := bufio.NewReader(conn)
+	ack, err := wire.ReadAck(br)
+	if err != nil {
+		return 0, fmt.Errorf("read server ack: %w", err)
+	}
+	if ack != wire.AckOK {
+		return 0, fmt.Errorf("server rejected stream %q (already in use)", stream)
+	}
+
+	return copyConnToFile(br, dst)
 }
 
 func main() {
@@ -103,7 +115,7 @@ func main() {
 	defer conn.Close()
 
 	fw := bufio.NewWriter(f)
-	written, err := runConsumer(conn, conn, fw, *stream)
+	written, err := runConsumer(conn, fw, *stream)
 	if err != nil {
 		log.Fatalf("drain stream: %v", err)
 	}
