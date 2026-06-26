@@ -1,0 +1,9 @@
+version: 2
+updates:
+  # The Go module has zero external requires, so the only dependency surface is
+  # the GitHub Actions used by the workflows. Keep them current and patched.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
