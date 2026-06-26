@@ -36,6 +36,16 @@ func New(capacity int) *Queue {
 // Push appends a frame, blocking while the queue is full. It returns ErrClosed
 // if the queue is closed.
 func (q *Queue) Push(payload []byte) error {
+	// Prioritise closure: a closed queue must reject the frame even when buffer
+	// space is still available. Without this guard the select below has two ready
+	// cases and Go would pick one at random, so Push-after-Close could spuriously
+	// succeed.
+	select {
+	case <-q.closing:
+		return ErrClosed
+	default:
+	}
+
 	select {
 	case q.ch <- payload:
 		return nil
