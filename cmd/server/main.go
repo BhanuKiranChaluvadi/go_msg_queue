@@ -32,7 +32,7 @@ const queueCapacity = 1024
 
 func main() {
 	addr := flag.String("addr", "127.0.0.1:4000", "TCP listen address")
-	idle := flag.Duration("idle", 30*time.Second, "per-connection idle read timeout; 0 disables")
+	idle := flag.Duration("idle", 30*time.Second, "per-connection idle read/write timeout; 0 disables")
 	maxStreams := flag.Int("max-streams", 256, "maximum concurrent streams; 0 means unlimited")
 	attachTimeout := flag.Duration("attach-timeout", 10*time.Second, "how long a consumer waits for an absent producer; 0 waits forever")
 	flag.Parse()
@@ -69,15 +69,27 @@ func main() {
 	}
 }
 
-// touchDeadline refreshes the connection's read deadline to now+idle. A zero
+// touchReadDeadline refreshes the connection's read deadline to now+idle. A zero
 // idle disables the deadline. Refreshing before each read makes it a rolling
 // idle timeout: a connection making forward progress is never cut off, but one
 // that stalls (slowloris) is dropped after idle.
-func touchDeadline(conn net.Conn, idle time.Duration) {
+func touchReadDeadline(conn net.Conn, idle time.Duration) {
 	if idle <= 0 {
 		return
 	}
 	_ = conn.SetReadDeadline(time.Now().Add(idle))
+}
+
+// touchWriteDeadline refreshes the connection's write deadline to now+idle. It
+// bounds a slow- or non-reading consumer (a slow-read attack): once the kernel
+// send buffer fills, Write would otherwise block forever, pinning the goroutine
+// and the stream's queue and stalling the producer. With the deadline the write
+// fails after idle, the consumer detaches, and the stream is freed.
+func touchWriteDeadline(conn net.Conn, idle time.Duration) {
+	if idle <= 0 {
+		return
+	}
+	_ = conn.SetWriteDeadline(time.Now().Add(idle))
 }
 
 // handleConn dispatches a single connection based on its declared role and
@@ -92,13 +104,13 @@ func handleConn(conn net.Conn, reg *broker.Registry, idle, attachTimeout time.Du
 	}()
 
 	br := bufio.NewReader(conn)
-	touchDeadline(conn, idle)
+	touchReadDeadline(conn, idle)
 	role, err := br.ReadByte()
 	if err != nil {
 		log.Printf("read role: %v", err)
 		return
 	}
-	touchDeadline(conn, idle)
+	touchReadDeadline(conn, idle)
 	id, err := wire.ReadID(br)
 	if err != nil {
 		log.Printf("read stream id from %s: %v", conn.RemoteAddr(), err)
@@ -109,7 +121,7 @@ func handleConn(conn net.Conn, reg *broker.Registry, idle, attachTimeout time.Du
 	case roleProducer:
 		handleProducer(conn, br, reg, id, idle)
 	case roleConsumer:
-		handleConsumer(conn, reg, id, attachTimeout)
+		handleConsumer(conn, reg, id, idle, attachTimeout)
 	default:
 		log.Printf("unknown role byte %q from %s", role, conn.RemoteAddr())
 	}
@@ -127,7 +139,7 @@ func handleProducer(conn net.Conn, br *bufio.Reader, reg *broker.Registry, id st
 	defer reg.DetachProducer(id)
 
 	for {
-		touchDeadline(conn, idle)
+		touchReadDeadline(conn, idle)
 		payload, err := wire.ReadFrame(br)
 		if err != nil {
 			if !errors.Is(err, io.EOF) {
@@ -145,7 +157,8 @@ func handleProducer(conn net.Conn, br *bufio.Reader, reg *broker.Registry, id st
 // handleConsumer writes stream id's frames to the consumer until the stream is
 // closed and drained, then flushes. It first waits up to attachTimeout for a
 // producer to appear, so a consumer for an absent stream does not block forever.
-func handleConsumer(conn net.Conn, reg *broker.Registry, id string, attachTimeout time.Duration) {
+// A write deadline is refreshed before each frame so a stalled reader is dropped.
+func handleConsumer(conn net.Conn, reg *broker.Registry, id string, idle, attachTimeout time.Duration) {
 	q, err := reg.AttachConsumer(id)
 	if err != nil {
 		log.Printf("consumer %q: %v", id, err)
@@ -164,11 +177,13 @@ func handleConsumer(conn net.Conn, reg *broker.Registry, id string, attachTimeou
 		if !ok {
 			break
 		}
+		touchWriteDeadline(conn, idle)
 		if err := wire.WriteFrame(bw, payload); err != nil {
 			log.Printf("consumer %q write: %v", id, err)
 			return
 		}
 	}
+	touchWriteDeadline(conn, idle)
 	if err := bw.Flush(); err != nil {
 		log.Printf("consumer %q flush: %v", id, err)
 	}
