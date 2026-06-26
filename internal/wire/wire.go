@@ -126,3 +126,26 @@ func ReadID(r io.Reader) (string, error) {
 	}
 	return id, nil
 }
+
+// Connection acknowledgement bytes. After reading a connection's role and stream
+// id, the server replies with a single status byte so a rejected producer or
+// consumer fails fast instead of silently losing data.
+const (
+	AckOK   byte = 'K' // attach succeeded; data may flow
+	AckBusy byte = 'X' // attach rejected (stream taken or at capacity)
+)
+
+// WriteAck writes a single acknowledgement byte to w.
+func WriteAck(w io.Writer, ack byte) error {
+	_, err := w.Write([]byte{ack})
+	return err
+}
+
+// ReadAck reads a single acknowledgement byte from r.
+func ReadAck(r io.Reader) (byte, error) {
+	var b [1]byte
+	if _, err := io.ReadFull(r, b[:]); err != nil {
+		return 0, err
+	}
+	return b[0], nil
+}

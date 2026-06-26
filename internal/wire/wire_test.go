@@ -141,3 +141,25 @@ func TestReadIDRejectsInvalidToken(t *testing.T) {
 func repeat(s string, n int) string {
 	return string(bytes.Repeat([]byte(s), n))
 }
+
+func TestWriteReadAckRoundTrip(t *testing.T) {
+	for _, ack := range []byte{AckOK, AckBusy} {
+		var buf bytes.Buffer
+		if err := WriteAck(&buf, ack); err != nil {
+			t.Fatalf("WriteAck(%q): %v", ack, err)
+		}
+		got, err := ReadAck(&buf)
+		if err != nil {
+			t.Fatalf("ReadAck: %v", err)
+		}
+		if got != ack {
+			t.Fatalf("ReadAck = %q, want %q", got, ack)
+		}
+	}
+}
+
+func TestReadAckErrorsOnEmptyReader(t *testing.T) {
+	if _, err := ReadAck(bytes.NewReader(nil)); err == nil {
+		t.Fatal("expected an error reading an ack from an empty reader")
+	}
+}
