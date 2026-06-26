@@ -67,7 +67,7 @@ own queue.
 its identity once, right after connecting:
 
 ```
-[role byte 'P'|'C']  →  [StreamID frame]  →  [data frames...]
+[role byte 'P'|'C']  →  [StreamID frame]  →  [server ack 'K'|'X']  →  [data frames...]
 ```
 
 - **StreamID** is validated as a token: 1–64 bytes (`MaxIDSize = 64`) from
@@ -75,6 +75,10 @@ its identity once, right after connecting:
   map keys / future filenames.
 - Because each TCP connection carries exactly one stream, per-connection identity
   is sufficient and cheaper than a per-frame `StreamID` header.
+- **Server ack** — after reading the role and id, the broker replies with one
+  byte: `'K'` (`AckOK`) on success or `'X'` (`AckBusy`) when the stream is taken
+  or the broker is at capacity. A rejected client fails fast with a non-zero exit
+  instead of silently dropping its input.
 
 **Registry (`internal/broker`)** — a `map[StreamID]*queue.Queue` behind a mutex:
 

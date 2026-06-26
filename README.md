@@ -94,7 +94,7 @@ A small binary protocol over TCP, defined in `internal/wire`.
 1. one **role byte** — `P` (producer) or `C` (consumer);
 2. one **stream-id frame** — a token of 1–64 bytes from `[A-Za-z0-9._-]`.
 
-After the handshake, a producer sends data frames until it closes the connection; a consumer receives data frames until the stream's queue is closed and drained.
+The server then replies with a one-byte **ack**: `K` when the producer/consumer was attached, or `X` when the stream is already taken or the broker is at capacity. A rejected client reports the error and exits non-zero rather than silently dropping its input. After a `K` ack, a producer sends data frames until it closes the connection; a consumer receives data frames until the stream's queue is closed and drained.
 
 **Routing & lifecycle.** The broker keeps one bounded FIFO per stream id, allowing a single producer and a single consumer each. The fixed queue capacity provides backpressure — when it fills, the producer's socket stalls rather than the broker growing without bound. A stream is reference-counted and garbage-collected once both ends have detached and it has been consumed.
 
@@ -144,5 +144,6 @@ make help    — list available targets
 
 ## Further Reading
 
+- `docs/internals-explained.md` — a beginner-friendly tour of how `wire`, `queue`, and the registry fit together
 - `docs/design-and-decisions.md` — what was built, the choices made and skipped, and the roadmap
 - `docs/specifications.md` — the protocol and behavioural specification

@@ -383,10 +383,17 @@ frame, each connection declares its identity once, immediately after connecting:
 1. one **role byte** — `'P'` (producer) or `'C'` (consumer);
 2. one **StreamID frame** — an ordinary length-prefixed frame carrying the id
    (`wire.WriteID` / `wire.ReadID`);
-3. then the normal stream of data frames.
+3. one **ack byte** sent back by the server — `'K'` (`wire.AckOK`) when the
+   producer/consumer was attached, or `'X'` (`wire.AckBusy`) when the stream is
+   already taken or the broker is at capacity;
+4. then the normal stream of data frames — only when the ack was `AckOK`.
 
 Because each TCP connection carries exactly one stream, per-connection identity is
 sufficient and cheaper than a per-frame `StreamID` header.
+
+The ack closes a race that would otherwise drop data silently: a second producer
+on an already-owned stream, or a consumer that arrives when the broker is full,
+learns it was rejected and exits non-zero instead of writing into a void.
 
 **StreamID validation.** Ids are tokens of 1–64 bytes drawn from
 `[A-Za-z0-9._-]` (`wire.MaxIDSize`, `wire.ValidID`). Anything empty, over-length,
