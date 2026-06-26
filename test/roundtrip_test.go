@@ -5,6 +5,8 @@ package roundtrip
 import (
 	"bytes"
 	"crypto/sha256"
+	"errors"
+	"io"
 	"net"
 	"os"
 	"os/exec"
@@ -209,5 +211,51 @@ func TestServerShutsDownOnSignal(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		_ = srv.Process.Kill()
 		t.Fatal("server did not exit on signal")
+	}
+}
+
+// TestServerClosesIdleConnection verifies the rolling idle deadline drops a
+// connection that declares a role then stalls mid-frame (a slowloris client),
+// rather than holding a goroutine and queue slot indefinitely.
+func TestServerClosesIdleConnection(t *testing.T) {
+	serverBin, _, _ := binaries(t)
+	addr := freeAddr(t)
+	srv := exec.Command(serverBin, "-addr", addr, "-idle", "300ms")
+	srv.Stderr = os.Stderr
+	if err := srv.Start(); err != nil {
+		t.Fatalf("start server: %v", err)
+	}
+	defer func() {
+		_ = srv.Process.Kill()
+		_, _ = srv.Process.Wait()
+	}()
+	waitDial(t, addr)
+
+	conn, err := net.Dial("tcp", addr)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer conn.Close()
+
+	// Declare producer role, then send only a partial frame header and stall.
+	if _, err := conn.Write([]byte{'P', 0x00, 0x00}); err != nil {
+		t.Fatalf("write partial frame: %v", err)
+	}
+
+	// The server must drop the idle connection well before our own deadline.
+	if err := conn.SetReadDeadline(time.Now().Add(3 * time.Second)); err != nil {
+		t.Fatalf("set deadline: %v", err)
+	}
+	buf := make([]byte, 1)
+	switch _, err := conn.Read(buf); {
+	case err == nil:
+		t.Fatal("expected server to close idle connection, got data")
+	case errors.Is(err, io.EOF):
+		// success: server closed the connection at the idle deadline
+	case os.IsTimeout(err):
+		t.Fatal("server did not close idle connection within timeout")
+	default:
+		// Any other read error (e.g. connection reset) also means the server
+		// closed the connection, which is the behaviour under test.
 	}
 }

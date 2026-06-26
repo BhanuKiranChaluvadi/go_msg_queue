@@ -15,6 +15,7 @@ import (
 	"os/signal"
 	"sync/atomic"
 	"syscall"
+	"time"
 
 	"filequeue/internal/queue"
 	"filequeue/internal/wire"
@@ -32,6 +33,7 @@ const queueCapacity = 1024
 
 func main() {
 	addr := flag.String("addr", "127.0.0.1:4000", "TCP listen address")
+	idle := flag.Duration("idle", 30*time.Second, "per-connection idle read timeout; 0 disables")
 	flag.Parse()
 
 	q := queue.New(queueCapacity)
@@ -62,13 +64,24 @@ func main() {
 			log.Printf("accept: %v", err)
 			continue
 		}
-		go handleConn(conn, q)
+		go handleConn(conn, q, *idle)
 	}
+}
+
+// touchDeadline refreshes the connection's read deadline to now+idle. A zero
+// idle disables the deadline. Refreshing before each read makes it a rolling
+// idle timeout: a connection making forward progress is never cut off, but one
+// that stalls (slowloris) is dropped after idle.
+func touchDeadline(conn net.Conn, idle time.Duration) {
+	if idle <= 0 {
+		return
+	}
+	_ = conn.SetReadDeadline(time.Now().Add(idle))
 }
 
 // handleConn dispatches a single connection based on its declared role. A
 // recovered panic is confined to this connection so the accept loop survives.
-func handleConn(conn net.Conn, q *queue.Queue) {
+func handleConn(conn net.Conn, q *queue.Queue, idle time.Duration) {
 	defer conn.Close()
 	defer func() {
 		if r := recover(); r != nil {
@@ -77,6 +90,7 @@ func handleConn(conn net.Conn, q *queue.Queue) {
 	}()
 
 	br := bufio.NewReader(conn)
+	touchDeadline(conn, idle)
 	role, err := br.ReadByte()
 	if err != nil {
 		log.Printf("read role: %v", err)
@@ -85,7 +99,7 @@ func handleConn(conn net.Conn, q *queue.Queue) {
 
 	switch role {
 	case roleProducer:
-		handleProducer(br, q)
+		handleProducer(conn, br, q, idle)
 	case roleConsumer:
 		handleConsumer(conn, q)
 	default:
@@ -94,9 +108,12 @@ func handleConn(conn net.Conn, q *queue.Queue) {
 }
 
 // handleProducer reads frames until the producer half-closes, then closes the
-// queue to signal the consumer that the stream is complete.
-func handleProducer(br *bufio.Reader, q *queue.Queue) {
+// queue to signal the consumer that the stream is complete. The read deadline
+// is refreshed before each frame so a stalled producer is dropped without
+// penalising a slow-but-progressing one.
+func handleProducer(conn net.Conn, br *bufio.Reader, q *queue.Queue, idle time.Duration) {
 	for {
+		touchDeadline(conn, idle)
 		payload, err := wire.ReadFrame(br)
 		if err != nil {
 			if !errors.Is(err, io.EOF) {
