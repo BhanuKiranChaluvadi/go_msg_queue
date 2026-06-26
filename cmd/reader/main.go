@@ -11,6 +11,7 @@ import (
 	"net"
 	"os"
 
+	"filequeue/internal/cli"
 	"filequeue/internal/wire"
 )
 
@@ -20,6 +21,27 @@ const roleProducer = 'P'
 // chunkSize is the maximum payload carried by a single frame. It must not exceed
 // wire.MaxFrameSize. 32 KiB balances syscall count against latency.
 const chunkSize = 32 * 1024
+
+// usageHeader and usageFooter make up the -h/-help text for this command.
+const usageHeader = `reader — the filequeue producer worker.
+
+It streams an input file to the queue broker as length-prefixed frames, in
+fixed-size chunks, never loading the whole file into memory.
+
+Usage:
+  reader -in <file> [flags]
+
+Flags:
+`
+
+const usageFooter = `
+Examples:
+  # Publish a file to the default stream on a local broker.
+  reader -in input.txt
+
+  # Publish to a named stream on a remote broker.
+  reader -in photo.jpg -addr broker.internal:4000 -stream images
+`
 
 // copyFileToConn reads r in chunk-sized blocks and writes each block as a single
 // frame to w, returning the number of frames written. It does not flush w; the
@@ -67,10 +89,12 @@ func runProducer(conn io.Writer, src io.Reader, stream string, chunk int) (int, 
 }
 
 func main() {
+	cli.SetUsage(usageHeader, usageFooter)
 	input := flag.String("in", "", "input file path (required)")
 	addr := flag.String("addr", "localhost:4000", "queue server address")
 	stream := flag.String("stream", "default", "stream id to publish to")
 	flag.Parse()
+	cli.HandleExtraArgs()
 
 	if *input == "" {
 		log.Fatal("-in flag is required")

@@ -12,11 +12,33 @@ import (
 	"net"
 	"os"
 
+	"filequeue/internal/cli"
 	"filequeue/internal/wire"
 )
 
 // roleConsumer mirrors the broker's role byte for a consumer connection.
 const roleConsumer = 'C'
+
+// usageHeader and usageFooter make up the -h/-help text for this command.
+const usageHeader = `writer — the filequeue consumer worker.
+
+It reads length-prefixed frames for a stream from the queue broker and appends
+their raw payloads to the output file, then flushes and fsyncs before exiting.
+
+Usage:
+  writer -out <file> [flags]
+
+Flags:
+`
+
+const usageFooter = `
+Examples:
+  # Subscribe to the default stream and write to a file.
+  writer -out output.txt
+
+  # Subscribe to a named stream on a remote broker.
+  writer -out photo.jpg -addr broker.internal:4000 -stream images
+`
 
 // copyConnToFile reads frames from r until EOF and writes each payload to w,
 // returning the number of frames written. A clean EOF is success; any other
@@ -57,10 +79,12 @@ func runConsumer(handshake io.Writer, frames io.Reader, dst io.Writer, stream st
 }
 
 func main() {
+	cli.SetUsage(usageHeader, usageFooter)
 	output := flag.String("out", "", "output file path (required)")
 	addr := flag.String("addr", "localhost:4000", "queue server address")
 	stream := flag.String("stream", "default", "stream id to subscribe to")
 	flag.Parse()
+	cli.HandleExtraArgs()
 
 	if *output == "" {
 		log.Fatal("-out flag is required")

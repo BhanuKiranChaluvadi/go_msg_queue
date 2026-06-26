@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"filequeue/internal/broker"
+	"filequeue/internal/cli"
 	"filequeue/internal/queue"
 	"filequeue/internal/wire"
 )
@@ -31,13 +32,40 @@ const (
 // queueCapacity is the number of frames buffered per stream before Push blocks.
 const queueCapacity = 1024
 
+// usageHeader and usageFooter make up the -h/-help text for this command.
+const usageHeader = `server — the filequeue queue broker.
+
+It accepts TCP connections, each declaring a role ('P' producer or 'C' consumer)
+and a stream id, then moves length-prefixed frames from each producer into a
+per-stream bounded FIFO and out to that stream's single consumer, in order.
+
+Usage:
+  server [flags]
+
+Flags:
+`
+
+const usageFooter = `
+Examples:
+  # Listen on the default address (127.0.0.1:4000) with default limits.
+  server
+
+  # Listen on all interfaces, port 5000, with a 60s idle timeout.
+  server -addr 0.0.0.0:5000 -idle 60s
+
+  # Tighten resource caps for a small deployment.
+  server -max-streams 16 -max-conns 64
+`
+
 func main() {
+	cli.SetUsage(usageHeader, usageFooter)
 	addr := flag.String("addr", "127.0.0.1:4000", "TCP listen address")
 	idle := flag.Duration("idle", 30*time.Second, "per-connection idle read/write timeout; 0 disables")
 	maxStreams := flag.Int("max-streams", 256, "maximum concurrent streams; 0 means unlimited")
 	maxConns := flag.Int("max-conns", 1024, "maximum concurrent connections; 0 means unlimited")
 	attachTimeout := flag.Duration("attach-timeout", 10*time.Second, "how long a consumer waits for an absent producer; 0 waits forever")
 	flag.Parse()
+	cli.HandleExtraArgs()
 
 	reg := broker.NewRegistry(queueCapacity, *maxStreams)
 
