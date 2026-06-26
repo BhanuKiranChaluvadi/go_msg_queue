@@ -34,6 +34,7 @@ func main() {
 	addr := flag.String("addr", "127.0.0.1:4000", "TCP listen address")
 	idle := flag.Duration("idle", 30*time.Second, "per-connection idle read/write timeout; 0 disables")
 	maxStreams := flag.Int("max-streams", 256, "maximum concurrent streams; 0 means unlimited")
+	maxConns := flag.Int("max-conns", 1024, "maximum concurrent connections; 0 means unlimited")
 	attachTimeout := flag.Duration("attach-timeout", 10*time.Second, "how long a consumer waits for an absent producer; 0 waits forever")
 	flag.Parse()
 
@@ -56,6 +57,13 @@ func main() {
 		reg.CloseAll() // let consumers drain and finish
 	}()
 
+	// sem caps concurrent connections so a flood cannot exhaust goroutines or
+	// file descriptors. A nil sem means unlimited.
+	var sem chan struct{}
+	if *maxConns > 0 {
+		sem = make(chan struct{}, *maxConns)
+	}
+
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
@@ -65,7 +73,15 @@ func main() {
 			log.Printf("accept: %v", err)
 			continue
 		}
-		go handleConn(conn, reg, *idle, *attachTimeout)
+		if sem != nil {
+			sem <- struct{}{} // blocks once max-conns are in flight
+		}
+		go func() {
+			if sem != nil {
+				defer func() { <-sem }()
+			}
+			handleConn(conn, reg, *idle, *attachTimeout)
+		}()
 	}
 }
 
