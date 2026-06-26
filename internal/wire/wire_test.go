@@ -92,3 +92,52 @@ func TestQuickRoundTrip(t *testing.T) {
 		t.Error(err)
 	}
 }
+
+func TestWriteReadIDRoundTrip(t *testing.T) {
+	for _, id := range []string{"default", "a", "stream-1", "File_2.txt", repeat("x", MaxIDSize)} {
+		var buf bytes.Buffer
+		if err := WriteID(&buf, id); err != nil {
+			t.Fatalf("WriteID(%q): %v", id, err)
+		}
+		got, err := ReadID(&buf)
+		if err != nil {
+			t.Fatalf("ReadID(%q): %v", id, err)
+		}
+		if got != id {
+			t.Errorf("round-trip mismatch: got %q, want %q", got, id)
+		}
+	}
+}
+
+func TestWriteIDRejectsInvalid(t *testing.T) {
+	cases := map[string]string{
+		"empty":     "",
+		"too long":  repeat("x", MaxIDSize+1),
+		"space":     "bad id",
+		"slash":     "a/b",
+		"unicode":   "café",
+		"null byte": "a\x00b",
+	}
+	for name, id := range cases {
+		if err := WriteID(io.Discard, id); !errors.Is(err, ErrInvalidID) {
+			t.Errorf("%s: got %v, want ErrInvalidID", name, err)
+		}
+	}
+}
+
+func TestReadIDRejectsInvalidToken(t *testing.T) {
+	// A frame whose payload is a structurally valid frame but an invalid id
+	// token must be rejected by ReadID.
+	var buf bytes.Buffer
+	if err := WriteFrame(&buf, []byte("bad id")); err != nil {
+		t.Fatalf("WriteFrame: %v", err)
+	}
+	if _, err := ReadID(&buf); !errors.Is(err, ErrInvalidID) {
+		t.Errorf("got %v, want ErrInvalidID", err)
+	}
+}
+
+// repeat returns s repeated n times, as a string.
+func repeat(s string, n int) string {
+	return string(bytes.Repeat([]byte(s), n))
+}
