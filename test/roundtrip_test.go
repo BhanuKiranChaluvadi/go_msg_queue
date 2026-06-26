@@ -359,3 +359,60 @@ func TestConsumerAttachTimeout(t *testing.T) {
 		t.Errorf("expected empty output for absent stream, got %d bytes", len(b))
 	}
 }
+
+// TestDuplicateProducerIsRejected verifies the attach acknowledgement: once a
+// stream has an owner, a second producer on the same stream fails fast with a
+// non-zero exit instead of silently dropping its input, and the first
+// producer's data still round-trips to the consumer untouched.
+func TestDuplicateProducerIsRejected(t *testing.T) {
+	serverBin, readerBin, writerBin := binaries(t)
+	addr := freeAddr(t)
+	srv := exec.Command(serverBin, "-addr", addr)
+	srv.Stderr = os.Stderr
+	if err := srv.Start(); err != nil {
+		t.Fatalf("start server: %v", err)
+	}
+	defer func() {
+		_ = srv.Process.Kill()
+		_, _ = srv.Process.Wait()
+	}()
+	waitDial(t, addr)
+
+	dir := t.TempDir()
+	in := filepath.Join(dir, "first.in")
+	payload := bytes.Repeat([]byte("first-producer-data\n"), 1000)
+	if err := os.WriteFile(in, payload, 0o644); err != nil {
+		t.Fatalf("write input: %v", err)
+	}
+
+	// First producer attaches, publishes its data, and exits. The stream is now
+	// owned and its frames stay buffered until a consumer drains them.
+	first := exec.Command(readerBin, "-addr", addr, "-in", in, "-stream", "dup")
+	first.Stderr = os.Stderr
+	if err := first.Run(); err != nil {
+		t.Fatalf("first producer: %v", err)
+	}
+
+	// Second producer on the same stream must be rejected and exit non-zero.
+	other := filepath.Join(dir, "second.in")
+	if err := os.WriteFile(other, []byte("second-should-be-rejected\n"), 0o644); err != nil {
+		t.Fatalf("write second input: %v", err)
+	}
+	second := exec.Command(readerBin, "-addr", addr, "-in", other, "-stream", "dup")
+	second.Stderr = os.Stderr
+	if err := second.Run(); err == nil {
+		t.Fatal("second producer on a taken stream should fail, but it exited 0")
+	}
+
+	// The consumer drains the stream and must receive the first producer's data
+	// untouched — the rejected producer contributed nothing.
+	out := filepath.Join(dir, "dup.out")
+	wr := exec.Command(writerBin, "-addr", addr, "-out", out, "-stream", "dup")
+	wr.Stderr = os.Stderr
+	if err := wr.Run(); err != nil {
+		t.Fatalf("consumer: %v", err)
+	}
+	if got, want := sha(t, out), sha(t, in); got != want {
+		t.Errorf("consumer output does not match the first producer's input")
+	}
+}
