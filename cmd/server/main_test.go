@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"net"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -162,4 +163,69 @@ func TestHandleConsumerAttachTimeout(t *testing.T) {
 		t.Fatal("consumer handler did not return after the attach timeout")
 	}
 	_ = cli.Close()
+}
+
+// TestServeRoundTripAndGracefulStop runs the real accept loop on a loopback
+// listener: a producer and consumer connect over TCP, a frame round-trips, and
+// the loop returns cleanly once closing is set and the listener is closed.
+func TestServeRoundTripAndGracefulStop(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	reg := broker.NewRegistry(8, 0)
+	var closing atomic.Bool
+	done := make(chan struct{})
+	go func() {
+		serve(ln, reg, serverConfig{idle: 0, maxConns: 2, attachTimeout: time.Second}, &closing)
+		close(done)
+	}()
+	addr := ln.Addr().String()
+
+	// Producer connects and sends one frame; left open until the consumer reads.
+	pc, err := net.Dial("tcp", addr)
+	if err != nil {
+		t.Fatalf("dial producer: %v", err)
+	}
+	pbw := bufio.NewWriter(pc)
+	_ = pbw.WriteByte(roleProducer)
+	_ = wire.WriteID(pbw, "s")
+	_ = wire.WriteFrame(pbw, []byte("payload"))
+	if err := pbw.Flush(); err != nil {
+		t.Fatalf("flush producer: %v", err)
+	}
+	// Closing the producer ends the stream; its frame stays buffered for the
+	// consumer, and pumpOut flushes once the queue is closed and drained.
+	_ = pc.Close()
+
+	// Consumer connects, drains the buffered frame, then sees EOF.
+	cc, err := net.Dial("tcp", addr)
+	if err != nil {
+		t.Fatalf("dial consumer: %v", err)
+	}
+	cbw := bufio.NewWriter(cc)
+	_ = cbw.WriteByte(roleConsumer)
+	_ = wire.WriteID(cbw, "s")
+	if err := cbw.Flush(); err != nil {
+		t.Fatalf("flush consumer: %v", err)
+	}
+	_ = cc.SetReadDeadline(time.Now().Add(2 * time.Second))
+	cr := bufio.NewReader(cc)
+	got, err := wire.ReadFrame(cr)
+	if err != nil || string(got) != "payload" {
+		t.Fatalf("consumer ReadFrame = %q err=%v, want %q", got, err, "payload")
+	}
+	if _, err := wire.ReadFrame(cr); err == nil {
+		t.Fatal("expected EOF after the stream drained")
+	}
+	_ = cc.Close()
+
+	// Trigger graceful shutdown and assert serve returns.
+	closing.Store(true)
+	_ = ln.Close()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("serve did not return after shutdown")
+	}
 }

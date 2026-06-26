@@ -58,11 +58,26 @@ func main() {
 		reg.CloseAll() // let consumers drain and finish
 	}()
 
+	serve(ln, reg, serverConfig{idle: *idle, maxConns: *maxConns, attachTimeout: *attachTimeout}, &closing)
+}
+
+// serverConfig holds the per-connection tunables the accept loop passes down.
+type serverConfig struct {
+	idle          time.Duration
+	maxConns      int
+	attachTimeout time.Duration
+}
+
+// serve runs the accept loop on ln, dispatching each connection to handleConn in
+// its own goroutine and capping concurrency at cfg.maxConns (0 = unlimited). It
+// returns when Accept fails after closing has been set; callers trigger a
+// graceful stop by storing true into closing and closing ln.
+func serve(ln net.Listener, reg *broker.Registry, cfg serverConfig, closing *atomic.Bool) {
 	// sem caps concurrent connections so a flood cannot exhaust goroutines or
 	// file descriptors. A nil sem means unlimited.
 	var sem chan struct{}
-	if *maxConns > 0 {
-		sem = make(chan struct{}, *maxConns)
+	if cfg.maxConns > 0 {
+		sem = make(chan struct{}, cfg.maxConns)
 	}
 
 	for {
@@ -81,7 +96,7 @@ func main() {
 			if sem != nil {
 				defer func() { <-sem }()
 			}
-			handleConn(conn, reg, *idle, *attachTimeout)
+			handleConn(conn, reg, cfg.idle, cfg.attachTimeout)
 		}()
 	}
 }
