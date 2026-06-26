@@ -75,3 +75,54 @@ func ReadFrame(r io.Reader) ([]byte, error) {
 	}
 	return payload, nil
 }
+
+// MaxIDSize is the maximum length, in bytes, of a stream identifier.
+const MaxIDSize = 64
+
+// ErrInvalidID indicates a stream identifier that is empty, exceeds MaxIDSize,
+// or contains a byte outside the allowed set [A-Za-z0-9._-].
+var ErrInvalidID = errors.New("wire: invalid stream id")
+
+// ValidID reports whether id is a well-formed stream identifier: 1..MaxIDSize
+// bytes drawn from [A-Za-z0-9._-]. The restricted token charset keeps ids safe
+// to use in logs and any future filesystem-backed naming.
+func ValidID(id string) bool {
+	if len(id) == 0 || len(id) > MaxIDSize {
+		return false
+	}
+	for i := 0; i < len(id); i++ {
+		c := id[i]
+		switch {
+		case c >= 'A' && c <= 'Z',
+			c >= 'a' && c <= 'z',
+			c >= '0' && c <= '9',
+			c == '.', c == '_', c == '-':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// WriteID writes a stream identifier as a single frame. The id must satisfy
+// ValidID; otherwise it returns ErrInvalidID without writing anything.
+func WriteID(w io.Writer, id string) error {
+	if !ValidID(id) {
+		return ErrInvalidID
+	}
+	return WriteFrame(w, []byte(id))
+}
+
+// ReadID reads a stream identifier written by WriteID and validates it. It
+// returns ErrInvalidID if the received token is malformed.
+func ReadID(r io.Reader) (string, error) {
+	payload, err := ReadFrame(r)
+	if err != nil {
+		return "", err
+	}
+	id := string(payload)
+	if !ValidID(id) {
+		return "", ErrInvalidID
+	}
+	return id, nil
+}
