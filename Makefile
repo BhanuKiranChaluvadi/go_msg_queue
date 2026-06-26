@@ -8,7 +8,7 @@ INPUT_FILE  := test/testdata/sample.txt
 OUTPUT_FILE := test/testdata/output.txt
 SERVER_ADDR := localhost:4000
 
-.PHONY: all build run test race vet fmt vuln check clean help
+.PHONY: all build run test cover race vet fmt vuln check clean help
 
 all: build
 
@@ -43,6 +43,11 @@ run: build
 test:
 	go test ./...
 
+## cover   — report total test coverage across all packages
+cover:
+	go test -coverprofile=coverage.out ./...
+	@go tool cover -func=coverage.out | tail -1
+
 ## race    — run all tests with the race detector (CI gold standard)
 race:
 	go test -race ./...
@@ -66,9 +71,9 @@ vuln:
 check: fmt vet build race vuln
 	@echo "✓  all quality gates passed"
 
-## clean   — remove compiled binaries and generated output file
+## clean   — remove compiled binaries, coverage, and generated output file
 clean:
-	rm -rf $(BINARY_DIR) $(OUTPUT_FILE)
+	rm -rf $(BINARY_DIR) $(OUTPUT_FILE) coverage.out
 
 ## help    — list available targets
 help:
