@@ -259,3 +259,103 @@ func TestServerClosesIdleConnection(t *testing.T) {
 		// closed the connection, which is the behaviour under test.
 	}
 }
+
+func TestMultiStreamIsolation(t *testing.T) {
+	serverBin, readerBin, writerBin := binaries(t)
+	addr := freeAddr(t)
+	srv := exec.Command(serverBin, "-addr", addr)
+	srv.Stderr = os.Stderr
+	if err := srv.Start(); err != nil {
+		t.Fatalf("start server: %v", err)
+	}
+	defer func() {
+		_ = srv.Process.Kill()
+		_, _ = srv.Process.Wait()
+	}()
+	waitDial(t, addr)
+
+	dir := t.TempDir()
+	type stream struct {
+		id      string
+		content []byte
+	}
+	streams := []stream{
+		{"alpha", bytes.Repeat([]byte("A"), 200000)},
+		{"bravo", []byte("bravo\nlines\nhere\n")},
+		{"charlie", append(bytes.Repeat([]byte("C"), 70000), '\n')},
+		{"delta", nil}, // empty file must round-trip as empty
+	}
+
+	var wg sync.WaitGroup
+	for _, s := range streams {
+		in := filepath.Join(dir, s.id+".in")
+		out := filepath.Join(dir, s.id+".out")
+		if err := os.WriteFile(in, s.content, 0o644); err != nil {
+			t.Fatalf("write input %s: %v", s.id, err)
+		}
+		wg.Add(1)
+		go func(id, in, out string) {
+			defer wg.Done()
+			wr := exec.Command(writerBin, "-addr", addr, "-out", out, "-stream", id)
+			wr.Stderr = os.Stderr
+			if err := wr.Start(); err != nil {
+				t.Errorf("start writer %s: %v", id, err)
+				return
+			}
+			rd := exec.Command(readerBin, "-addr", addr, "-in", in, "-stream", id)
+			rd.Stderr = os.Stderr
+			if err := rd.Run(); err != nil {
+				t.Errorf("reader %s: %v", id, err)
+				return
+			}
+			if err := wr.Wait(); err != nil {
+				t.Errorf("writer %s: %v", id, err)
+			}
+		}(s.id, in, out)
+	}
+	wg.Wait()
+
+	for _, s := range streams {
+		in := filepath.Join(dir, s.id+".in")
+		out := filepath.Join(dir, s.id+".out")
+		if got, want := sha(t, out), sha(t, in); got != want {
+			t.Errorf("stream %s: output does not match input\n in=%x\nout=%x", s.id, want, got)
+		}
+	}
+}
+
+func TestConsumerAttachTimeout(t *testing.T) {
+	serverBin, _, writerBin := binaries(t)
+	addr := freeAddr(t)
+	srv := exec.Command(serverBin, "-addr", addr, "-attach-timeout", "300ms")
+	srv.Stderr = os.Stderr
+	if err := srv.Start(); err != nil {
+		t.Fatalf("start server: %v", err)
+	}
+	defer func() {
+		_ = srv.Process.Kill()
+		_, _ = srv.Process.Wait()
+	}()
+	waitDial(t, addr)
+
+	out := filepath.Join(t.TempDir(), "ghost.out")
+	wr := exec.Command(writerBin, "-addr", addr, "-out", out, "-stream", "ghost")
+	wr.Stderr = os.Stderr
+	if err := wr.Start(); err != nil {
+		t.Fatalf("start writer: %v", err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- wr.Wait() }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("writer exited with error: %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		_ = wr.Process.Kill()
+		t.Fatal("writer did not exit after the attach timeout")
+	}
+	if b, _ := os.ReadFile(out); len(b) != 0 {
+		t.Errorf("expected empty output for absent stream, got %d bytes", len(b))
+	}
+}
