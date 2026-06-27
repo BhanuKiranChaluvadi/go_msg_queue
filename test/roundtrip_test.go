@@ -416,3 +416,61 @@ func TestDuplicateProducerIsRejected(t *testing.T) {
 		t.Errorf("consumer output does not match the first producer's input")
 	}
 }
+
+// TestDuplicateConsumerIsRejected verifies that a stream allows only one
+// consumer. While the first consumer is attached and waiting for a producer, a
+// second consumer on the same stream is rejected by the attach ack and exits
+// non-zero instead of silently competing for the same frames.
+func TestDuplicateConsumerIsRejected(t *testing.T) {
+	serverBin, _, writerBin := binaries(t)
+	addr := freeAddr(t)
+	srv := exec.Command(serverBin, "-addr", addr, "-attach-timeout", "1s")
+	srv.Stderr = os.Stderr
+	if err := srv.Start(); err != nil {
+		t.Fatalf("start server: %v", err)
+	}
+	defer func() {
+		_ = srv.Process.Kill()
+		_, _ = srv.Process.Wait()
+	}()
+	waitDial(t, addr)
+
+	dir := t.TempDir()
+	out1 := filepath.Join(dir, "first.out")
+	out2 := filepath.Join(dir, "second.out")
+
+	// First consumer attaches and blocks waiting for a producer; it holds the
+	// stream's single consumer slot for the duration of the attach timeout.
+	first := exec.Command(writerBin, "-addr", addr, "-out", out1, "-stream", "solo")
+	first.Stderr = os.Stderr
+	if err := first.Start(); err != nil {
+		t.Fatalf("start first consumer: %v", err)
+	}
+	firstDone := make(chan error, 1)
+	go func() { firstDone <- first.Wait() }()
+
+	// Let the first consumer attach before the second one connects.
+	time.Sleep(250 * time.Millisecond)
+
+	// Second consumer on the same stream must be rejected and exit non-zero.
+	second := exec.Command(writerBin, "-addr", addr, "-out", out2, "-stream", "solo")
+	second.Stderr = os.Stderr
+	if err := second.Run(); err == nil {
+		t.Fatal("second consumer on a taken stream should fail, but it exited 0")
+	}
+
+	// The first consumer keeps its slot, then exits cleanly once its attach
+	// timeout elapses with no producer, leaving an empty output file.
+	select {
+	case err := <-firstDone:
+		if err != nil {
+			t.Fatalf("first consumer exited with error: %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		_ = first.Process.Kill()
+		t.Fatal("first consumer did not exit after its attach timeout")
+	}
+	if b, _ := os.ReadFile(out1); len(b) != 0 {
+		t.Errorf("expected empty output for the timed-out consumer, got %d bytes", len(b))
+	}
+}
