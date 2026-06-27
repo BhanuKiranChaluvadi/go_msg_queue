@@ -6,11 +6,13 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -472,5 +474,57 @@ func TestDuplicateConsumerIsRejected(t *testing.T) {
 	}
 	if b, _ := os.ReadFile(out1); len(b) != 0 {
 		t.Errorf("expected empty output for the timed-out consumer, got %d bytes", len(b))
+	}
+}
+
+// TestChunkSizesRoundTrip proves that reassembly is independent of the
+// producer's frame size: the same payload split into 1-byte frames or into
+// max-size frames must arrive byte-identical. It exercises the reader's -chunk
+// flag end to end over a single shared broker, one stream per chunk size.
+func TestChunkSizesRoundTrip(t *testing.T) {
+	serverBin, readerBin, writerBin := binaries(t)
+	addr := freeAddr(t)
+	srv := exec.Command(serverBin, "-addr", addr)
+	srv.Stderr = os.Stderr
+	if err := srv.Start(); err != nil {
+		t.Fatalf("start server: %v", err)
+	}
+	defer func() {
+		_ = srv.Process.Kill()
+		_, _ = srv.Process.Wait()
+	}()
+	waitDial(t, addr)
+
+	dir := t.TempDir()
+	// Odd, non-power-of-two size with binary bytes so partial final frames and
+	// non-aligned boundaries are exercised for every chunk size.
+	payload := append(bytes.Repeat([]byte("chunk-size-independence!"), 421), 0x00, 0xff)
+	in := filepath.Join(dir, "in.bin")
+	if err := os.WriteFile(in, payload, 0o644); err != nil {
+		t.Fatalf("write input: %v", err)
+	}
+
+	for _, chunk := range []int{1, 7, 333, 4096, 65535} {
+		t.Run(fmt.Sprintf("chunk=%d", chunk), func(t *testing.T) {
+			stream := "chunk-" + strconv.Itoa(chunk)
+			out := filepath.Join(dir, stream+".out")
+
+			wr := exec.Command(writerBin, "-addr", addr, "-out", out, "-stream", stream)
+			wr.Stderr = os.Stderr
+			if err := wr.Start(); err != nil {
+				t.Fatalf("start writer: %v", err)
+			}
+			rd := exec.Command(readerBin, "-addr", addr, "-in", in, "-stream", stream, "-chunk", strconv.Itoa(chunk))
+			rd.Stderr = os.Stderr
+			if err := rd.Run(); err != nil {
+				t.Fatalf("reader: %v", err)
+			}
+			if err := wr.Wait(); err != nil {
+				t.Fatalf("writer: %v", err)
+			}
+			if got, want := sha(t, out), sha(t, in); got != want {
+				t.Errorf("chunk %d: output does not match input", chunk)
+			}
+		})
 	}
 }

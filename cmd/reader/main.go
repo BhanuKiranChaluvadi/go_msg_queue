@@ -108,11 +108,15 @@ func main() {
 	input := flag.String("in", "", "input file path (required)")
 	addr := flag.String("addr", "localhost:4000", "queue server address")
 	stream := flag.String("stream", "default", "stream id to publish to")
+	chunk := flag.Int("chunk", chunkSize, "bytes per frame (1..65535)")
 	flag.Parse()
 	cli.HandleExtraArgs()
 
 	if *input == "" {
 		log.Fatal("-in flag is required")
+	}
+	if *chunk < 1 || *chunk > wire.MaxFrameSize {
+		log.Fatalf("-chunk must be between 1 and %d", wire.MaxFrameSize)
 	}
 
 	f, err := os.Open(*input)
@@ -127,7 +131,7 @@ func main() {
 	}
 	defer conn.Close()
 
-	sent, err := runProducer(conn, f, *stream, chunkSize)
+	sent, err := runProducer(conn, f, *stream, *chunk)
 	if err != nil {
 		log.Fatalf("stream input: %v", err)
 	}
