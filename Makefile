@@ -4,11 +4,13 @@ SERVER_BIN  := $(BINARY_DIR)/server
 READER_BIN  := $(BINARY_DIR)/reader
 WRITER_BIN  := $(BINARY_DIR)/writer
 
-INPUT_FILE  := test/testdata/sample.txt
-OUTPUT_FILE := test/testdata/output.txt
-SERVER_ADDR := localhost:4000
+INPUT_FILE   := test/testdata/sample.txt
+OUTPUT_FILE  := test/testdata/output.txt
+LARGE_FILE   := test/testdata/large.txt
+LARGE_OUTPUT := test/testdata/large.out
+SERVER_ADDR  := localhost:4000
 
-.PHONY: all build run test cover race vet fmt vuln check clean help
+.PHONY: all build run run-large test cover race vet fmt vuln check clean help
 
 all: build
 
@@ -38,6 +40,15 @@ run: build
 	diff $(INPUT_FILE) $(OUTPUT_FILE) \
 		&& echo "✓  output matches input" \
 		|| (echo "✗  output differs from input" && exit 1)
+
+## run-large — stream the ~11 MB large.txt through the pipeline and verify (generates it if missing)
+run-large: $(LARGE_FILE)
+	@$(MAKE) run INPUT_FILE=$(LARGE_FILE) OUTPUT_FILE=$(LARGE_OUTPUT)
+
+$(LARGE_FILE):
+	@mkdir -p $(dir $@)
+	@yes "the quick brown fox jumps over the lazy dog 0123456789" | head -n 200000 > $@
+	@echo "generated $@ ($$(wc -c <$@) bytes)"
 
 ## test    — run all unit tests
 test:
@@ -73,7 +84,7 @@ check: fmt vet build race vuln
 
 ## clean   — remove compiled binaries, coverage, and generated output file
 clean:
-	rm -rf $(BINARY_DIR) $(OUTPUT_FILE) coverage.out
+	rm -rf $(BINARY_DIR) $(OUTPUT_FILE) $(LARGE_OUTPUT) coverage.out
 
 ## help    — list available targets
 help:

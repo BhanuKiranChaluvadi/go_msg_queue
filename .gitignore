@@ -17,6 +17,9 @@ coverage.*
 *.coverprofile
 profile.cov
 
+# Generated big-file fixture (regenerated on demand by `make run-large`)
+test/testdata/large.txt
+
 # Dependency directories (remove the comment below to include it)
 # vendor/
 
