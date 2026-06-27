@@ -528,3 +528,29 @@ func TestChunkSizesRoundTrip(t *testing.T) {
 		})
 	}
 }
+
+// TestFixtureAndLargeFileRoundTrip streams the committed sample.txt fixture and
+// a freshly generated multi-megabyte file through the real binaries, asserting
+// byte-perfect copies. This puts both the small fixture and a large, many-frame
+// transfer on the CI path (the large file is generated, never committed).
+func TestFixtureAndLargeFileRoundTrip(t *testing.T) {
+	large := filepath.Join(t.TempDir(), "large.in")
+	big := bytes.Repeat([]byte("the quick brown fox jumps over the lazy dog 0123456789\n"), 100000)
+	if err := os.WriteFile(large, big, 0o644); err != nil {
+		t.Fatalf("write large input: %v", err)
+	}
+
+	cases := map[string]string{
+		"sample fixture": filepath.Join(repoRoot(t), "test", "testdata", "sample.txt"),
+		"large file":     large,
+	}
+	for name, in := range cases {
+		t.Run(name, func(t *testing.T) {
+			out := filepath.Join(t.TempDir(), "out")
+			runPipeline(t, in, out)
+			if got, want := sha(t, out), sha(t, in); got != want {
+				t.Errorf("%s: output does not match input\n in=%x\nout=%x", name, want, got)
+			}
+		})
+	}
+}
