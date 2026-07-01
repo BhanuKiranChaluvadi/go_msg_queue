@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"medconnect/internal/api"
 	"medconnect/internal/appointments"
@@ -68,10 +69,16 @@ func main() {
 		Webhooks:      webhookRegistry,
 	}
 
+	// Live updates: the dispatcher delivers events to patient webhooks. In embedded
+	// mode it runs in-process as a Publisher subscriber; in split mode a separate
+	// cmd/notifier would consume /internal/events instead.
+	dispatcher := webhooks.NewDispatcher(webhooks.Config{Logger: logger})
+	if *embedWorkers {
+		dispatcher.Start()
+		publisher.Subscribe(webhooks.NewSubscriber(webhookRegistry, dispatcher, logger))
+	}
+
 	logger.Info("starting hub", "embedWorkers", *embedWorkers)
-	// TODO(tasks 2.3/3.3): when embedWorkers is true, start the webhook dispatcher
-	// and transcription worker as goroutines here; otherwise expose the internal
-	// contract for cmd/notifier and cmd/transcriber.
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -86,5 +93,10 @@ func main() {
 		logger.Error("server error", "err", err)
 		os.Exit(1)
 	}
+
+	// Drain in-flight webhook deliveries before exiting.
+	stopCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	dispatcher.Stop(stopCtx)
 	logger.Info("server stopped cleanly")
 }
