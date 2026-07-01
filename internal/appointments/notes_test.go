@@ -44,7 +44,7 @@ func TestAddNote_Success(t *testing.T) {
 		t.Errorf("stored notes = %+v, want one with the text", stored)
 	}
 
-	// note_added event carries the brief's fields.
+	// note_added event carries the expected fields.
 	evs := pub.byType(domain.EventNoteAdded)
 	if len(evs) != 1 {
 		t.Fatalf("note_added events = %d, want 1", len(evs))

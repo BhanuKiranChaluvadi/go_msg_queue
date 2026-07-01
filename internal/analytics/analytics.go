@@ -1,6 +1,6 @@
-// Package analytics implements Feature 7 (Usage Analytics). Per-tenant usage
-// metrics are aggregated over the same append-only event log that powers the
-// audit trail, so no separate tracking system is needed.
+// Package analytics computes per-tenant usage metrics by aggregating the same
+// append-only event log that powers the audit trail, so no separate tracking
+// system is needed.
 package analytics
 
 import (

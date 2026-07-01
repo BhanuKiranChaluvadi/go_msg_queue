@@ -157,8 +157,8 @@ func btoa(b bool) string {
 	return "false"
 }
 
-// TestFullFlow exercises the whole system through the HTTP API, across every
-// implemented feature, for one patient journey.
+// TestFullFlow exercises the whole system through the HTTP API, end to end, for
+// one patient journey.
 func TestFullFlow(t *testing.T) {
 	f := newFullServer(t)
 	defer f.cleanup()

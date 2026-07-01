@@ -21,7 +21,7 @@ type EventPublisher interface {
 }
 
 // Deps groups the Service's collaborators. Using a struct keeps the constructor
-// stable as more repositories are added in later slices.
+// stable as more repositories are added.
 type Deps struct {
 	Timeslots     store.TimeslotRepo
 	Appointments  store.AppointmentRepo

@@ -14,7 +14,7 @@ import (
 var ErrUnknownActor = errors.New("tenancy: unknown actor")
 
 // ActorResolver looks up the Actor for an authenticated (tenant, user) pair.
-// Production would back this with a user store; the core uses StaticResolver.
+// Production would back this with a user store; this service uses StaticResolver.
 type ActorResolver interface {
 	Resolve(ctx context.Context, tenantID, userID string) (Actor, error)
 }
@@ -72,8 +72,8 @@ func RequireRole(role domain.Role, next http.Handler) http.Handler {
 }
 
 // writeError emits a minimal JSON error envelope. The shared envelope in the api
-// package (Task 0.6) supersedes this for feature handlers; tenancy keeps its own
-// to avoid importing api and creating an import cycle.
+// package supersedes this for the API handlers; tenancy keeps its own to avoid
+// importing api and creating an import cycle.
 func writeError(w http.ResponseWriter, status int, code, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)

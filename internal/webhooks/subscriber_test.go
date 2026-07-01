@@ -60,7 +60,7 @@ func noteEvent(tenant, patient string) domain.Event {
 	}
 }
 
-func TestSubscriber_MapsNoteAddedToBriefPayload(t *testing.T) {
+func TestSubscriber_MapsNoteAddedPayload(t *testing.T) {
 	reg, enq, sub := regWith(t)
 	wh := register(t, reg, "hosp-A", "pat-1", "https://a.test/hook", domain.EventNoteAdded)
 

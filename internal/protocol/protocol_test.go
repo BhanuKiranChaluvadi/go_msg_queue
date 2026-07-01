@@ -10,7 +10,7 @@ import (
 )
 
 func TestSSEClientStreamsDataLines(t *testing.T) {
-	// Server emits the brief's example events plus a comment and blank line.
+	// Server emits example events plus a comment and blank line.
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		fmt.Fprint(w, ": a comment line\n")

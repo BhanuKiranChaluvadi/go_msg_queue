@@ -1,7 +1,6 @@
-// Command server is the medconnect API hub. By default it runs as a single
-// binary with the transcription and webhook workers embedded; the optional split
-// mode (-embed-workers=false) runs them as separate processes against the
-// internal contract. Worker wiring is added in later slices.
+// Command server runs the medconnect API. By default it runs as a single binary
+// with the transcription and webhook workers embedded; -embed-workers=false is
+// reserved for running them as separate processes.
 package main
 
 import (

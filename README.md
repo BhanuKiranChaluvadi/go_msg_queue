@@ -22,39 +22,100 @@ Requires **Go 1.26+** (already in the dev container). No database or other
 software to install — the core runs entirely on the standard library.
 
 ```bash
-make run        # start the API hub on :8080 (single binary, workers embedded)
+make run        # start the API server on :8080 (single binary, workers embedded)
 make test       # run all unit + integration tests
 make race       # run tests with the race detector
 make check      # fmt + vet + build + race (the full local gate)
 ```
 
-Try it (the dev server seeds demo users in tenant `demo`):
-
-```bash
-# health
-curl localhost:8080/healthz
-
-# doctor registers an availability slot
-curl -X POST localhost:8080/v1/timeslots \
-  -H 'X-Tenant-ID: demo' -H 'X-User-ID: doctor' \
-  -d '{"start":"2027-01-01T09:00:00Z","end":"2027-01-01T09:30:00Z"}'
-
-# patient books it, then views the full overview
-curl -X POST localhost:8080/v1/appointments \
-  -H 'X-Tenant-ID: demo' -H 'X-User-ID: patient' \
-  -d '{"doctorId":"doctor","timeslotId":"<id-from-above>"}'
-```
-
 | Command | Description |
 |---------|-------------|
-| `make run` | Start the hub (`:8080`), workers embedded |
+| `make run` | Start the server (`:8080`), workers embedded |
 | `make test` / `make race` | Tests / tests under the race detector |
 | `make check` | fmt + vet + build + race |
 | `make build` | Compile `./bin/server` |
 
-> Split mode (running the transcription/webhook workers as separate processes) is
-> a planned, config-flag option (`-embed-workers=false`); the worker binaries land
-> with Phases 2–3.
+---
+
+## Using the API
+
+Every `/v1` request is authenticated with two headers:
+
+- `X-Tenant-ID` — the hospital organization (data is isolated per tenant)
+- `X-User-ID` — the acting user; their role (doctor / patient / pharmacist)
+  determines what they may do
+
+> The running server seeds three demo users in tenant `demo`: `doctor`, `patient`,
+> and `pharmacist`. (In production this header-based identity is replaced by
+> JWT/OAuth2 with the same resolver seam.)
+
+A complete walkthrough with `curl` (start the server with `make run` first):
+
+```bash
+BASE=localhost:8080
+DOC='-H X-Tenant-ID:demo -H X-User-ID:doctor'
+PAT='-H X-Tenant-ID:demo -H X-User-ID:patient'
+PHARM='-H X-Tenant-ID:demo -H X-User-ID:pharmacist'
+
+# health check
+curl $BASE/healthz
+
+# 1) doctor publishes an availability slot  -> returns the slot (note its "id")
+curl -X POST $BASE/v1/timeslots $DOC \
+  -d '{"start":"2027-01-01T09:00:00Z","end":"2027-01-01T09:30:00Z"}'
+
+# 2) patient lists the doctor's open slots
+curl "$BASE/v1/doctors/doctor/timeslots" $PAT
+
+# 3) patient books a slot  -> returns the appointment (note its "id")
+curl -X POST $BASE/v1/appointments $PAT \
+  -d '{"doctorId":"doctor","timeslotId":"<SLOT_ID>"}'
+
+# 4) patient registers a webhook for live updates (point at your receiver)
+curl -X POST $BASE/v1/webhooks $PAT \
+  -d '{"url":"https://example.test/hook","eventTypes":["note_added","prescription_added"]}'
+
+# 5) doctor adds a note and issues a prescription on the appointment
+curl -X POST $BASE/v1/appointments/<APPT_ID>/notes $DOC \
+  -d '{"text":"Patient reports headache."}'
+curl -X POST $BASE/v1/appointments/<APPT_ID>/prescriptions $DOC \
+  -d '{"medication":"Aspirin 100mg","expiresAt":"2027-02-01T00:00:00Z"}'
+
+# 6) doctor starts streamed dictation (needs a transcription server; see flags)
+curl -X POST $BASE/v1/appointments/<APPT_ID>/transcription $DOC
+
+# 7) pharmacist lists active prescriptions and dispatches one
+curl "$BASE/v1/prescriptions?status=active" $PHARM
+curl -X POST $BASE/v1/prescriptions/<RX_ID>/dispatch $PHARM
+
+# 8) doctor diagnoses the patient
+curl -X POST $BASE/v1/patients/patient/diagnoses $DOC -d '{"disease":"Migraine"}'
+
+# 9) overviews
+curl $BASE/v1/appointments/<APPT_ID> $PAT                       # appointment + notes + rx
+curl "$BASE/v1/patients/patient/overview?at=2027-01-02T00:00:00Z" $DOC   # point-in-time
+
+# 10) audit trail and usage analytics (doctor / org staff)
+curl "$BASE/v1/audit?patientId=patient" $DOC
+curl $BASE/v1/analytics $DOC
+```
+
+Responses are JSON; errors use `{"error":{"code","message"}}` with the matching
+HTTP status (`400/401/403/404/409`).
+
+### Configuration flags
+
+```bash
+./bin/server \
+  -addr :8080 \                       # HTTP listen address
+  -internal-token <token> \           # guards the /internal/* worker stream
+  -transcription-url <url> \          # external transcription SSE server (for dictation)
+  -transcription-token <token> \      # bearer token for that server
+  -embed-workers=true                 # run the workers in-process (default)
+```
+
+Environment equivalents: `MEDCONNECT_INTERNAL_TOKEN`,
+`MEDCONNECT_TRANSCRIPTION_URL`, `MEDCONNECT_TRANSCRIPTION_TOKEN`.
 
 ---
 
@@ -95,7 +156,7 @@ without touching business logic.
  │            (per-tenant, region-partitioned)    │
  └───────────────────────────────────────────────┘
 
- external transcription server ──SSE (data: {...})──► transcription worker  (Phase 3)
+ external transcription server ──SSE (data: {...})──► transcription worker
                                                         (embedded, or cmd/transcriber)
 ```
 
@@ -194,9 +255,9 @@ Short version of the "why". Fuller reasoning lives in
    `X-User-ID` headers resolved to an actor + role. Production swaps in JWT/OAuth2
    with the same `ActorResolver` seam; nothing else changes.
 
-7. **Webhook delivery is async and bounded** (Phase 2): a slow/failing patient
+7. **Webhook delivery is async and bounded**: a slow/failing patient
    endpoint must never block a doctor's request, so delivery uses a bounded queue
-   + worker pool with retry/backoff — the backpressure idea reused as a pattern.
+   + worker pool with retry/backoff.
 
 ---
 
@@ -264,13 +325,13 @@ Events on the log: `appointment_booked`, `note_added`, `note_incomplete`,
 
 ---
 
-## Roadmap / feature status
+## Capabilities
 
-All eight feature areas are implemented against the in-memory core. Each attaches
+All eight capability areas are implemented against the in-memory core. Each attaches
 to the shared event log and store interfaces; the production database is a
 drop-in adapter (see above).
 
-| # | Feature | Status |
+| # | Capability | Status |
 |---|---------|--------|
 | 1 | Appointments Management | ✅ implemented |
 | 2 | Notes Streaming (SSE transcription, gap-aware) | ✅ implemented |

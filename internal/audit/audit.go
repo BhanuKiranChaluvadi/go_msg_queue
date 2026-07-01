@@ -1,7 +1,7 @@
-// Package audit implements Feature 6 (Audit Trail). Every mutation already
-// appends an immutable event carrying who (ActorID) and when (Timestamp) to the
-// event log, so the audit trail is a filtered read view over that log rather than
-// a separate system to keep in sync.
+// Package audit provides a queryable audit trail. Every mutation appends an
+// immutable event carrying who (ActorID) and when (Timestamp) to the event log,
+// so the audit trail is a filtered read view over that log rather than a separate
+// system to keep in sync.
 package audit
 
 import (

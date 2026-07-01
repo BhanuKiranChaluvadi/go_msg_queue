@@ -1,6 +1,6 @@
-// Package webhooks implements Feature 3 (Live Updates): patients register webhook
-// URLs, and the service delivers event notifications to them. This file holds the
-// subscription Registry; delivery is handled by the dispatcher.
+// Package webhooks lets patients register webhook URLs and delivers event
+// notifications to them. This file holds the subscription Registry; delivery is
+// handled by the dispatcher.
 package webhooks
 
 import (
@@ -14,8 +14,7 @@ import (
 	"medconnect/internal/tenancy"
 )
 
-// deliverableEventTypes are the event types a patient may subscribe to. They map
-// to the webhook payloads defined by the brief.
+// deliverableEventTypes are the event types a patient may subscribe to.
 var deliverableEventTypes = map[domain.EventType]bool{
 	domain.EventNoteAdded:         true,
 	domain.EventPrescriptionAdded: true,

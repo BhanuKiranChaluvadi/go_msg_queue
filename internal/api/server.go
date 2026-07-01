@@ -1,6 +1,5 @@
-// Package api wires the medconnect HTTP hub: request routing, cross-cutting
-// middleware, and the server lifecycle (start + graceful shutdown). Feature
-// routes and dependencies are added to Server in later slices.
+// Package api wires the medconnect HTTP service: request routing, cross-cutting
+// middleware, and the server lifecycle (start + graceful shutdown).
 package api
 
 import (
@@ -26,9 +25,7 @@ import (
 // requests to complete before the server is forced closed.
 const shutdownTimeout = 10 * time.Second
 
-// Server holds the hub's dependencies and builds its HTTP handler. It is the
-// composition root's view of the service; feature stores and services are added
-// as fields in later slices.
+// Server holds the service dependencies and builds the HTTP handler.
 type Server struct {
 	Logger        *slog.Logger
 	IDGen         platform.IDGen
@@ -54,13 +51,13 @@ func (s *Server) Handler() http.Handler {
 	// authed wraps a handler with tenant/actor authentication for the v1 API.
 	authed := func(h http.Handler) http.Handler { return tenancy.Authenticate(s.Resolver)(h) }
 
-	// Appointments — timeslots (Feature 1).
+	// Appointments — timeslots.
 	mux.Handle("POST /v1/timeslots",
 		authed(tenancy.RequireRole(domain.RoleDoctor, http.HandlerFunc(s.handleRegisterTimeslot))))
 	mux.Handle("GET /v1/doctors/{doctorId}/timeslots",
 		authed(http.HandlerFunc(s.handleListDoctorTimeslots)))
 
-	// Appointments — booking (Feature 1).
+	// Appointments — booking.
 	mux.Handle("POST /v1/appointments",
 		authed(tenancy.RequireRole(domain.RolePatient, http.HandlerFunc(s.handleBookAppointment))))
 	mux.Handle("GET /v1/appointments/next",
@@ -74,19 +71,19 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /v1/appointments/{id}/transcription",
 		authed(tenancy.RequireRole(domain.RoleDoctor, http.HandlerFunc(s.handleStartTranscription))))
 
-	// Live updates — webhook subscriptions (Feature 3).
+	// Live updates — webhook subscriptions.
 	mux.Handle("POST /v1/webhooks",
 		authed(tenancy.RequireRole(domain.RolePatient, http.HandlerFunc(s.handleRegisterWebhook))))
 	mux.Handle("DELETE /v1/webhooks/{id}",
 		authed(tenancy.RequireRole(domain.RolePatient, http.HandlerFunc(s.handleUnregisterWebhook))))
 
-	// Pharmacist dispatch (Feature 5).
+	// Pharmacist dispatch.
 	mux.Handle("GET /v1/prescriptions",
 		authed(tenancy.RequireRole(domain.RolePharmacist, http.HandlerFunc(s.handleListActivePrescriptions))))
 	mux.Handle("POST /v1/prescriptions/{id}/dispatch",
 		authed(tenancy.RequireRole(domain.RolePharmacist, http.HandlerFunc(s.handleDispatchPrescription))))
 
-	// Historical overview — diagnoses (Feature 4).
+	// Diagnoses and patient overview.
 	mux.Handle("POST /v1/patients/{id}/diagnoses",
 		authed(tenancy.RequireRole(domain.RoleDoctor, http.HandlerFunc(s.handleDiagnose))))
 	mux.Handle("DELETE /v1/patients/{id}/diagnoses/{did}",
@@ -94,11 +91,11 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /v1/patients/{id}/overview",
 		authed(http.HandlerFunc(s.handlePatientOverview)))
 
-	// Audit trail (Feature 6).
+	// Audit trail.
 	mux.Handle("GET /v1/audit",
 		authed(tenancy.RequireRole(domain.RoleDoctor, http.HandlerFunc(s.handleAuditQuery))))
 
-	// Usage analytics (Feature 7).
+	// Usage analytics.
 	mux.Handle("GET /v1/analytics",
 		authed(tenancy.RequireRole(domain.RoleDoctor, http.HandlerFunc(s.handleAnalytics))))
 

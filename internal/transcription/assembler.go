@@ -1,6 +1,6 @@
-// Package transcription implements Feature 2 (Notes Streaming): it consumes an
-// external Server-Sent-Events transcription stream for an appointment, reassembles
-// the chunks in sequence order, and stores the resulting note.
+// Package transcription consumes an external Server-Sent-Events transcription
+// stream for an appointment, reassembles the chunks in sequence order, and stores
+// the resulting note.
 //
 // Clinical-safety policy: a note is only "complete" when every chunk in
 // [0, finalSeq] is present. A missing middle chunk can invert meaning (dropping

@@ -91,7 +91,7 @@ func (r *Registry) ForPatientEvent(ctx context.Context, tenant, patientID string
 	return out, nil
 }
 
-// eventPayload is the webhook body defined by the brief.
+// eventPayload is the webhook notification body sent to subscribers.
 type eventPayload struct {
 	EventID       string         `json:"eventId"`
 	EventType     string         `json:"eventType"`

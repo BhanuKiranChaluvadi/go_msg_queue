@@ -1,6 +1,6 @@
-// Package clinical implements Feature 4 (Historical Overview): patient diagnoses
-// and a point-in-time overview of a patient's clinical picture. It reads across
-// the appointment/prescription/diagnosis stores and owns the diagnosis lifecycle.
+// Package clinical manages patient diagnoses and assembles a point-in-time
+// overview of a patient's clinical picture. It reads across the appointment,
+// prescription, and diagnosis stores and owns the diagnosis lifecycle.
 package clinical
 
 import (

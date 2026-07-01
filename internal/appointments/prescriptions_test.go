@@ -50,7 +50,7 @@ func TestIssuePrescription_Success(t *testing.T) {
 		t.Errorf("stored = %d, want 1", len(stored))
 	}
 
-	// prescription_added event carries the brief's data.
+	// prescription_added event carries the expected data.
 	evs := pub.byType(domain.EventPrescriptionAdded)
 	if len(evs) != 1 {
 		t.Fatalf("prescription_added events = %d, want 1", len(evs))
