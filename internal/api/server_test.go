@@ -28,6 +28,7 @@ var apiTestNow = time.Date(2026, 1, 1, 8, 0, 0, 0, time.UTC)
 func apiTestResolver() tenancy.StaticResolver {
 	return tenancy.StaticResolver{
 		"doc-a":   {ID: "doc-a", TenantID: "hosp-A", Role: domain.RoleDoctor},
+		"doc-a2":  {ID: "doc-a2", TenantID: "hosp-A", Role: domain.RoleDoctor},
 		"pat-a":   {ID: "pat-a", TenantID: "hosp-A", Role: domain.RolePatient},
 		"pat-a2":  {ID: "pat-a2", TenantID: "hosp-A", Role: domain.RolePatient},
 		"pharm-a": {ID: "pharm-a", TenantID: "hosp-A", Role: domain.RolePharmacist},

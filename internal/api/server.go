@@ -34,6 +34,7 @@ type Server struct {
 	Resolver      tenancy.ActorResolver
 	Appointments  *appointments.Service
 	Webhooks      *webhooks.Registry
+	Transcription TranscriptionStarter
 }
 
 // Handler builds the fully-wrapped HTTP handler: routes plus the request-id and
@@ -64,6 +65,8 @@ func (s *Server) Handler() http.Handler {
 		authed(tenancy.RequireRole(domain.RoleDoctor, http.HandlerFunc(s.handleAddNote))))
 	mux.Handle("POST /v1/appointments/{id}/prescriptions",
 		authed(tenancy.RequireRole(domain.RoleDoctor, http.HandlerFunc(s.handleIssuePrescription))))
+	mux.Handle("POST /v1/appointments/{id}/transcription",
+		authed(tenancy.RequireRole(domain.RoleDoctor, http.HandlerFunc(s.handleStartTranscription))))
 
 	// Live updates — webhook subscriptions (Feature 3).
 	mux.Handle("POST /v1/webhooks",

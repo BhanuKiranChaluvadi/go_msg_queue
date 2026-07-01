@@ -21,6 +21,7 @@ import (
 	"medconnect/internal/platform"
 	"medconnect/internal/store/memory"
 	"medconnect/internal/tenancy"
+	"medconnect/internal/transcription"
 	"medconnect/internal/webhooks"
 )
 
@@ -28,6 +29,8 @@ func main() {
 	addr := flag.String("addr", ":8080", "HTTP listen address")
 	embedWorkers := flag.Bool("embed-workers", true, "run transcription and webhook workers in-process (false = split mode)")
 	internalToken := flag.String("internal-token", os.Getenv("MEDCONNECT_INTERNAL_TOKEN"), "shared token guarding /internal/* endpoints")
+	transcriptionURL := flag.String("transcription-url", os.Getenv("MEDCONNECT_TRANSCRIPTION_URL"), "base URL of the external transcription SSE server")
+	transcriptionToken := flag.String("transcription-token", os.Getenv("MEDCONNECT_TRANSCRIPTION_TOKEN"), "bearer token for the transcription server")
 	flag.Parse()
 
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
@@ -52,6 +55,14 @@ func main() {
 	})
 	webhookRegistry := webhooks.NewRegistry(memory.NewWebhookStore(), idgen)
 
+	// Transcription worker: consumes the external SSE stream and stores dictated
+	// notes. appts satisfies transcription.NoteStore.
+	transcriptionMgr := transcription.NewManager(transcription.Config{
+		Notes:  appts,
+		Source: transcription.HTTPSource{BaseURL: *transcriptionURL, Token: *transcriptionToken},
+		Logger: logger,
+	})
+
 	// Dev-only actor seed. Production replaces this with a user store / JWT auth.
 	resolver := tenancy.StaticResolver{
 		"doctor":     {ID: "doctor", TenantID: "demo", Role: domain.RoleDoctor},
@@ -67,6 +78,7 @@ func main() {
 		Resolver:      resolver,
 		Appointments:  appts,
 		Webhooks:      webhookRegistry,
+		Transcription: transcriptionMgr,
 	}
 
 	// Live updates: the dispatcher delivers events to patient webhooks. In embedded
@@ -97,6 +109,7 @@ func main() {
 	// Drain in-flight webhook deliveries before exiting.
 	stopCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+	transcriptionMgr.Stop(stopCtx)
 	dispatcher.Stop(stopCtx)
 	logger.Info("server stopped cleanly")
 }
