@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"medconnect/internal/appointments"
+	"medconnect/internal/audit"
 	"medconnect/internal/clinical"
 	"medconnect/internal/domain"
 	"medconnect/internal/events"
@@ -43,7 +44,8 @@ func apiTestResolver() tenancy.StaticResolver {
 func newTestServer() *Server {
 	idgen := platform.NewFakeIDGen("req-")
 	clock := platform.NewFakeClock(apiTestNow)
-	publisher := events.NewPublisher(events.NewStore(), platform.SystemClock{}, idgen)
+	eventStore := events.NewStore()
+	publisher := events.NewPublisher(eventStore, platform.SystemClock{}, idgen)
 
 	// Shared stores so the clinical overview reads what the appointment endpoints write.
 	apptStore := memory.NewAppointmentStore()
@@ -76,6 +78,7 @@ func newTestServer() *Server {
 		Appointments:  appts,
 		Webhooks:      webhooks.NewRegistry(memory.NewWebhookStore(), platform.NewFakeIDGen("wh-")),
 		Clinical:      clinicalSvc,
+		Audit:         audit.NewService(eventStore),
 	}
 }
 

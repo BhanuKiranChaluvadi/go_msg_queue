@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"medconnect/internal/appointments"
+	"medconnect/internal/audit"
 	"medconnect/internal/clinical"
 	"medconnect/internal/domain"
 	"medconnect/internal/events"
@@ -37,6 +38,7 @@ type Server struct {
 	Webhooks      *webhooks.Registry
 	Transcription TranscriptionStarter
 	Clinical      *clinical.Service
+	Audit         *audit.Service
 }
 
 // Handler builds the fully-wrapped HTTP handler: routes plus the request-id and
@@ -89,6 +91,10 @@ func (s *Server) Handler() http.Handler {
 		authed(tenancy.RequireRole(domain.RoleDoctor, http.HandlerFunc(s.handleDismissDiagnosis))))
 	mux.Handle("GET /v1/patients/{id}/overview",
 		authed(http.HandlerFunc(s.handlePatientOverview)))
+
+	// Audit trail (Feature 6).
+	mux.Handle("GET /v1/audit",
+		authed(tenancy.RequireRole(domain.RoleDoctor, http.HandlerFunc(s.handleAuditQuery))))
 
 	return Chain(mux, RequestID(s.IDGen), Logging(s.Logger))
 }

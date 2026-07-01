@@ -16,6 +16,7 @@ import (
 
 	"medconnect/internal/api"
 	"medconnect/internal/appointments"
+	"medconnect/internal/audit"
 	"medconnect/internal/clinical"
 	"medconnect/internal/domain"
 	"medconnect/internal/events"
@@ -38,7 +39,8 @@ func main() {
 
 	idgen := platform.NewRandomID()
 	clock := platform.SystemClock{}
-	publisher := events.NewPublisher(events.NewStore(), clock, idgen)
+	eventStore := events.NewStore()
+	publisher := events.NewPublisher(eventStore, clock, idgen)
 
 	// Stores and services (in-memory core; swap for a SQL adapter in production).
 	timeslotStore := memory.NewTimeslotStore()
@@ -55,6 +57,7 @@ func main() {
 		Events:        publisher,
 	})
 	webhookRegistry := webhooks.NewRegistry(memory.NewWebhookStore(), idgen)
+	auditSvc := audit.NewService(eventStore)
 
 	clinicalSvc := clinical.NewService(clinical.Deps{
 		Diagnoses:     memory.NewDiagnosisStore(),
@@ -91,6 +94,7 @@ func main() {
 		Webhooks:      webhookRegistry,
 		Transcription: transcriptionMgr,
 		Clinical:      clinicalSvc,
+		Audit:         auditSvc,
 	}
 
 	// Live updates: the dispatcher delivers events to patient webhooks. In embedded
