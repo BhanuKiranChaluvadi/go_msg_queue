@@ -74,6 +74,10 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("DELETE /v1/webhooks/{id}",
 		authed(tenancy.RequireRole(domain.RolePatient, http.HandlerFunc(s.handleUnregisterWebhook))))
 
+	// Pharmacist dispatch (Feature 5).
+	mux.Handle("GET /v1/prescriptions",
+		authed(tenancy.RequireRole(domain.RolePharmacist, http.HandlerFunc(s.handleListActivePrescriptions))))
+
 	return Chain(mux, RequestID(s.IDGen), Logging(s.Logger))
 }
 
