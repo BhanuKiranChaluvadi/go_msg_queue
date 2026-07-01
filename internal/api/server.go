@@ -56,6 +56,8 @@ func (s *Server) Handler() http.Handler {
 		authed(tenancy.RequireRole(domain.RolePatient, http.HandlerFunc(s.handleBookAppointment))))
 	mux.Handle("GET /v1/appointments/next",
 		authed(tenancy.RequireRole(domain.RoleDoctor, http.HandlerFunc(s.handleNextAppointments))))
+	mux.Handle("GET /v1/appointments/{id}",
+		authed(http.HandlerFunc(s.handleGetAppointment)))
 	mux.Handle("POST /v1/appointments/{id}/notes",
 		authed(tenancy.RequireRole(domain.RoleDoctor, http.HandlerFunc(s.handleAddNote))))
 	mux.Handle("POST /v1/appointments/{id}/prescriptions",

@@ -36,3 +36,15 @@ func (s *Server) handleNextAppointments(w http.ResponseWriter, r *http.Request) 
 	}
 	writeJSON(w, http.StatusOK, list)
 }
+
+// handleGetAppointment returns an appointment with its notes and prescriptions.
+// Visible to the appointment's doctor and its patient only.
+// GET /v1/appointments/{id}
+func (s *Server) handleGetAppointment(w http.ResponseWriter, r *http.Request) {
+	ov, err := s.Appointments.AppointmentOverview(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, ov)
+}
