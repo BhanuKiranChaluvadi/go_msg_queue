@@ -43,5 +43,5 @@ func (s *Server) handleAuditQuery(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, recs)
+	writeList(w, http.StatusOK, recs)
 }

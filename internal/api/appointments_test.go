@@ -99,8 +99,7 @@ func TestNextAppointments_Handler(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("next: %d %s", rec.Code, rec.Body.String())
 	}
-	var list []domain.Appointment
-	_ = json.Unmarshal(rec.Body.Bytes(), &list)
+	list := decodeList[domain.Appointment](t, rec)
 	if len(list) != 1 || list[0].PatientID != "pat-a" {
 		t.Errorf("next list = %+v, want one appt for pat-a", list)
 	}
@@ -115,8 +114,7 @@ func TestNextAppointments_Handler(t *testing.T) {
 
 	// A doctor in another hospital sees nothing.
 	if rec := doRequest(t, srv, http.MethodGet, "/v1/appointments/next", "hosp-B", "doc-b", nil); rec.Code == http.StatusOK {
-		var other []domain.Appointment
-		_ = json.Unmarshal(rec.Body.Bytes(), &other)
+		other := decodeList[domain.Appointment](t, rec)
 		if len(other) != 0 {
 			t.Errorf("hosp-B doctor next = %+v, want empty", other)
 		}

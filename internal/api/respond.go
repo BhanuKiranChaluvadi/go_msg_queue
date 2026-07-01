@@ -18,6 +18,22 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	}
 }
 
+// listResponse is the envelope for collection endpoints. Wrapping the items in
+// an object (rather than returning a bare array) lets the response grow — for
+// example to add pagination metadata — without breaking existing clients.
+type listResponse[T any] struct {
+	Data []T `json:"data"`
+}
+
+// writeList writes items as a listResponse. A nil slice is emitted as an empty
+// array so clients always see "data": [].
+func writeList[T any](w http.ResponseWriter, status int, items []T) {
+	if items == nil {
+		items = []T{}
+	}
+	writeJSON(w, status, listResponse[T]{Data: items})
+}
+
 // maxRequestBody caps the size of a JSON request body. It bounds memory per
 // request and rejects oversized or runaway payloads at the boundary.
 const maxRequestBody = 1 << 20 // 1 MiB

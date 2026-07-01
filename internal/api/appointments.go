@@ -34,7 +34,7 @@ func (s *Server) handleNextAppointments(w http.ResponseWriter, r *http.Request) 
 		writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, list)
+	writeList(w, http.StatusOK, list)
 }
 
 // handleGetAppointment returns an appointment with its notes and prescriptions.

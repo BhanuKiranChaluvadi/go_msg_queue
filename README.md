@@ -101,7 +101,9 @@ curl $BASE/v1/analytics $DOC
 ```
 
 Responses are JSON; errors use `{"error":{"code","message"}}` with the matching
-HTTP status (`400/401/403/404/409`).
+HTTP status (`400/401/403/404/409`). Collection endpoints (the `GET` lists above)
+return a `{"data": [...]}` envelope so the shape can grow (e.g. pagination
+metadata) without breaking existing clients.
 
 ### Configuration flags
 

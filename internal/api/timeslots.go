@@ -36,5 +36,5 @@ func (s *Server) handleListDoctorTimeslots(w http.ResponseWriter, r *http.Reques
 		writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, list)
+	writeList(w, http.StatusOK, list)
 }

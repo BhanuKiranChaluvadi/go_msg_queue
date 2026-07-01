@@ -64,8 +64,7 @@ func TestAppointmentRoutes_NextNotShadowed(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Errorf("/next status = %d, want 200 (not shadowed by {id})", rec.Code)
 	}
-	var list []domain.Appointment
-	if err := json.Unmarshal(rec.Body.Bytes(), &list); err != nil {
-		t.Errorf("/next should return a list, got %s", rec.Body.String())
-	}
+	// Decoding as a list envelope confirms /next resolved to the list handler
+	// rather than being shadowed by the /{id} route.
+	_ = decodeList[domain.Appointment](t, rec)
 }

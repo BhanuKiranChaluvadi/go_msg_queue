@@ -15,6 +15,19 @@ import (
 	"medconnect/internal/platform"
 )
 
+// decodeList unwraps the {"data": [...]} list envelope used by collection
+// endpoints into a slice for assertions.
+func decodeList[T any](t *testing.T, rec *httptest.ResponseRecorder) []T {
+	t.Helper()
+	var body struct {
+		Data []T `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode list envelope: %v", err)
+	}
+	return body.Data
+}
+
 func TestWriteJSON(t *testing.T) {
 	rec := httptest.NewRecorder()
 	writeJSON(rec, http.StatusCreated, map[string]string{"hello": "world"})

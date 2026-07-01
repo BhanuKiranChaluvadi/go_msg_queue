@@ -1,7 +1,6 @@
 package api
 
 import (
-	"encoding/json"
 	"net/http"
 	"testing"
 	"time"
@@ -30,8 +29,7 @@ func TestAudit_Handler_TracksMutations(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("audit: %d %s", rec.Code, rec.Body.String())
 	}
-	var recs []audit.Record
-	_ = json.Unmarshal(rec.Body.Bytes(), &recs)
+	recs := decodeList[audit.Record](t, rec)
 
 	types := map[string]bool{}
 	for _, r := range recs {
@@ -48,8 +46,7 @@ func TestAudit_Handler_TracksMutations(t *testing.T) {
 
 	// Type filter narrows to a single kind.
 	rec = doRequest(t, srv, http.MethodGet, "/v1/audit?patientId=pat-a&type=note_added", "hosp-A", "doc-a", nil)
-	var noteOnly []audit.Record
-	_ = json.Unmarshal(rec.Body.Bytes(), &noteOnly)
+	noteOnly := decodeList[audit.Record](t, rec)
 	if len(noteOnly) != 1 || noteOnly[0].Type != "note_added" {
 		t.Errorf("type filter = %+v, want one note_added", noteOnly)
 	}

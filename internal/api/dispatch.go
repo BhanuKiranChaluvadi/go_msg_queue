@@ -19,7 +19,7 @@ func (s *Server) handleListActivePrescriptions(w http.ResponseWriter, r *http.Re
 		writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, list)
+	writeList(w, http.StatusOK, list)
 }
 
 // handleDispatchPrescription dispatches an active prescription, exactly once.

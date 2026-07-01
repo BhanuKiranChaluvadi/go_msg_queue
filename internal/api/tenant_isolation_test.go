@@ -41,8 +41,7 @@ func TestTenantIsolation(t *testing.T) {
 	}
 	// Doctor A's open slots are invisible in B.
 	if rec := doRequest(t, srv, http.MethodGet, "/v1/doctors/doc-a/timeslots", "hosp-B", "pat-b", nil); rec.Code == http.StatusOK {
-		var slots []domain.Timeslot
-		_ = json.Unmarshal(rec.Body.Bytes(), &slots)
+		slots := decodeList[domain.Timeslot](t, rec)
 		if len(slots) != 0 {
 			t.Errorf("B sees doc-a slots = %d, want 0", len(slots))
 		}
@@ -53,8 +52,7 @@ func TestTenantIsolation(t *testing.T) {
 	}
 	// A B doctor's "next" list excludes A's appointment.
 	if rec := doRequest(t, srv, http.MethodGet, "/v1/appointments/next", "hosp-B", "doc-b", nil); rec.Code == http.StatusOK {
-		var appts []domain.Appointment
-		_ = json.Unmarshal(rec.Body.Bytes(), &appts)
+		appts := decodeList[domain.Appointment](t, rec)
 		if len(appts) != 0 {
 			t.Errorf("B next appts = %d, want 0", len(appts))
 		}

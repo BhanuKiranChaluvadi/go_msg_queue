@@ -227,8 +227,7 @@ func TestFullFlow(t *testing.T) {
 
 	// 10. Audit trail captures the mutations.
 	rec = doRequest(t, srv, http.MethodGet, "/v1/audit?patientId=pat-a", "hosp-A", "doc-a", nil)
-	var recs []audit.Record
-	_ = json.Unmarshal(rec.Body.Bytes(), &recs)
+	recs := decodeList[audit.Record](t, rec)
 	seen := map[string]bool{}
 	for _, r := range recs {
 		seen[r.Type] = true

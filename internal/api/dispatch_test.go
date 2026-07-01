@@ -24,8 +24,7 @@ func TestListActivePrescriptions_Handler(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("list: %d %s", rec.Code, rec.Body.String())
 	}
-	var list []domain.Prescription
-	_ = json.Unmarshal(rec.Body.Bytes(), &list)
+	list := decodeList[domain.Prescription](t, rec)
 	if len(list) != 1 || list[0].Medication != "Aspirin 100mg" {
 		t.Errorf("active list = %+v, want one Aspirin prescription", list)
 	}
@@ -80,8 +79,7 @@ func TestDispatchPrescription_Handler(t *testing.T) {
 	}
 	// The prescription is no longer in the active list.
 	list := doRequest(t, srv, http.MethodGet, "/v1/prescriptions?status=active", "hosp-A", "pharm-a", nil)
-	var active []domain.Prescription
-	_ = json.Unmarshal(list.Body.Bytes(), &active)
+	active := decodeList[domain.Prescription](t, list)
 	if len(active) != 0 {
 		t.Errorf("active after dispatch = %d, want 0", len(active))
 	}

@@ -94,8 +94,7 @@ func TestListDoctorTimeslots_Handler_MultiTenant(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("list A: %d", rec.Code)
 	}
-	var listA []domain.Timeslot
-	_ = json.Unmarshal(rec.Body.Bytes(), &listA)
+	listA := decodeList[domain.Timeslot](t, rec)
 	if len(listA) != 1 || listA[0].DoctorID != "doc-a" {
 		t.Errorf("hosp-A list = %+v, want one doc-a slot", listA)
 	}
@@ -105,8 +104,7 @@ func TestListDoctorTimeslots_Handler_MultiTenant(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("list B: %d", rec.Code)
 	}
-	var listB []domain.Timeslot
-	_ = json.Unmarshal(rec.Body.Bytes(), &listB)
+	listB := decodeList[domain.Timeslot](t, rec)
 	if len(listB) != 0 {
 		t.Errorf("hosp-B list for doc-a = %+v, want empty (tenant isolation)", listB)
 	}
