@@ -209,6 +209,14 @@ Events on the log: `appointment_booked`, `note_added`, `note_incomplete`,
 `prescription_added`, `prescription_dispatched`, `diagnosis_added`,
 `diagnosis_dismissed`.
 
+> **Appointments are immutable once booked.** There is intentionally no "update
+> appointment" endpoint, so a `PATCH`/`PUT` on `/v1/appointments/{id}` returns
+> `405 Method Not Allowed`. This keeps the booking invariants simple and the audit
+> trail unambiguous. Reschedule/cancel can be added later as explicit state
+> transitions (e.g. `POST /v1/appointments/{id}/cancel` freeing the slot, then a
+> fresh booking) rather than in-place field edits — each emitting its own event so
+> history and analytics stay correct.
+
 ---
 
 ## Architecture Overview
