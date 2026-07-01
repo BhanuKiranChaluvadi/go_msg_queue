@@ -11,19 +11,42 @@ import (
 	"testing"
 	"time"
 
+	"medconnect/internal/appointments"
+	"medconnect/internal/domain"
 	"medconnect/internal/events"
 	"medconnect/internal/platform"
+	"medconnect/internal/store/memory"
+	"medconnect/internal/tenancy"
 )
 
-// newTestServer builds a Server with quiet logging and deterministic ids for use
-// in api tests.
+// apiTestNow is the fixed clock time used by the wired appointments service in
+// api tests, so future-slot timestamps are deterministic.
+var apiTestNow = time.Date(2026, 1, 1, 8, 0, 0, 0, time.UTC)
+
+// apiTestResolver seeds actors across two hospitals for multi-tenant tests.
+func apiTestResolver() tenancy.StaticResolver {
+	return tenancy.StaticResolver{
+		"doc-a":   {ID: "doc-a", TenantID: "hosp-A", Role: domain.RoleDoctor},
+		"pat-a":   {ID: "pat-a", TenantID: "hosp-A", Role: domain.RolePatient},
+		"pharm-a": {ID: "pharm-a", TenantID: "hosp-A", Role: domain.RolePharmacist},
+		"doc-b":   {ID: "doc-b", TenantID: "hosp-B", Role: domain.RoleDoctor},
+		"pat-b":   {ID: "pat-b", TenantID: "hosp-B", Role: domain.RolePatient},
+	}
+}
+
+// newTestServer builds a fully-wired Server with quiet logging, deterministic
+// ids, a fixed clock, and a multi-tenant resolver for api tests.
 func newTestServer() *Server {
 	idgen := platform.NewFakeIDGen("req-")
+	clock := platform.NewFakeClock(apiTestNow)
+	appts := appointments.NewService(memory.NewTimeslotStore(), clock, platform.NewFakeIDGen("ts-"))
 	return &Server{
 		Logger:        slog.New(slog.NewTextHandler(io.Discard, nil)),
 		IDGen:         idgen,
 		Publisher:     events.NewPublisher(events.NewStore(), platform.SystemClock{}, idgen),
 		InternalToken: "secret",
+		Resolver:      apiTestResolver(),
+		Appointments:  appts,
 	}
 }
 

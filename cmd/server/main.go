@@ -14,8 +14,12 @@ import (
 	"syscall"
 
 	"medconnect/internal/api"
+	"medconnect/internal/appointments"
+	"medconnect/internal/domain"
 	"medconnect/internal/events"
 	"medconnect/internal/platform"
+	"medconnect/internal/store/memory"
+	"medconnect/internal/tenancy"
 )
 
 func main() {
@@ -27,13 +31,27 @@ func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 
 	idgen := platform.NewRandomID()
-	publisher := events.NewPublisher(events.NewStore(), platform.SystemClock{}, idgen)
+	clock := platform.SystemClock{}
+	publisher := events.NewPublisher(events.NewStore(), clock, idgen)
+
+	// Stores and services (in-memory core; swap for a SQL adapter in production).
+	timeslotStore := memory.NewTimeslotStore()
+	appts := appointments.NewService(timeslotStore, clock, idgen)
+
+	// Dev-only actor seed. Production replaces this with a user store / JWT auth.
+	resolver := tenancy.StaticResolver{
+		"doctor":     {ID: "doctor", TenantID: "demo", Role: domain.RoleDoctor},
+		"patient":    {ID: "patient", TenantID: "demo", Role: domain.RolePatient},
+		"pharmacist": {ID: "pharmacist", TenantID: "demo", Role: domain.RolePharmacist},
+	}
 
 	srv := &api.Server{
 		Logger:        logger,
 		IDGen:         idgen,
 		Publisher:     publisher,
 		InternalToken: *internalToken,
+		Resolver:      resolver,
+		Appointments:  appts,
 	}
 
 	logger.Info("starting hub", "embedWorkers", *embedWorkers)

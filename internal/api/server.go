@@ -11,8 +11,11 @@ import (
 	"net/http"
 	"time"
 
+	"medconnect/internal/appointments"
+	"medconnect/internal/domain"
 	"medconnect/internal/events"
 	"medconnect/internal/platform"
+	"medconnect/internal/tenancy"
 )
 
 // shutdownTimeout bounds how long a graceful shutdown waits for in-flight
@@ -27,6 +30,8 @@ type Server struct {
 	IDGen         platform.IDGen
 	Publisher     *events.Publisher
 	InternalToken string
+	Resolver      tenancy.ActorResolver
+	Appointments  *appointments.Service
 }
 
 // Handler builds the fully-wrapped HTTP handler: routes plus the request-id and
@@ -36,6 +41,16 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", handleHealthz)
 	mux.Handle("GET /internal/events", s.internalAuth(http.HandlerFunc(s.handleInternalEvents)))
+
+	// authed wraps a handler with tenant/actor authentication for the v1 API.
+	authed := func(h http.Handler) http.Handler { return tenancy.Authenticate(s.Resolver)(h) }
+
+	// Appointments — timeslots (Feature 1).
+	mux.Handle("POST /v1/timeslots",
+		authed(tenancy.RequireRole(domain.RoleDoctor, http.HandlerFunc(s.handleRegisterTimeslot))))
+	mux.Handle("GET /v1/doctors/{doctorId}/timeslots",
+		authed(http.HandlerFunc(s.handleListDoctorTimeslots)))
+
 	return Chain(mux, RequestID(s.IDGen), Logging(s.Logger))
 }
 
