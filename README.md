@@ -162,12 +162,13 @@ Short version of the "why". Fuller reasoning lives in
    exactly. WebSocket (bidirectional, needs a handshake/lib) and gRPC (protoc +
    codegen + a dependency) would cost setup time for capabilities we don't need.
 
-2. **One append-only event log unifies four features.** Every mutation emits an
+2. **One append-only event log unifies three features.** Every mutation emits an
    immutable, timestamped event carrying *who* + *what* + *when*. That single
    structure yields **Live Updates** (subscribers), **Audit** (the log *is* the
-   trail), **Historical Overview** (fold events up to time *T*), and **Analytics**
-   (aggregate the log) — build once, get four. Producers never change when a new
-   consumer is added.
+   trail), and **Analytics** (aggregate the log) — build once, get three.
+   Producers never change when a new consumer is added. (The **Historical
+   Overview** reads point-in-time state directly from each entity's timestamps —
+   equally correct and simpler than replaying the log.)
 
 3. **In-memory stores behind interfaces (DIP).** Keeps the core dependency-light
    and testable; makes the database a later adapter, not a rewrite. (See the DB
@@ -221,7 +222,7 @@ thin; rules live in services; I/O is behind interfaces.
 
 ---
 
-## API (implemented so far — Feature 1)
+## API
 
 All `/v1` routes require `X-Tenant-ID` + `X-User-ID`. Errors use a consistent
 `{"error":{"code","message"}}` envelope.
@@ -235,9 +236,19 @@ All `/v1` routes require `X-Tenant-ID` + `X-User-ID`. Errors use a consistent
 | `GET /v1/appointments/{id}` | participants | Overview: appointment + notes + prescriptions |
 | `POST /v1/appointments/{id}/notes` | doctor | Add a manual note |
 | `POST /v1/appointments/{id}/prescriptions` | doctor | Issue a prescription |
+| `POST /v1/appointments/{id}/transcription` | doctor | Start streamed dictation (202, background) |
+| `POST /v1/webhooks` · `DELETE /v1/webhooks/{id}` | patient | Register / remove a live-update webhook |
+| `GET /v1/prescriptions?status=active` | pharmacist | Active-prescription worklist |
+| `POST /v1/prescriptions/{id}/dispatch` | pharmacist | Dispatch a prescription (exactly-once) |
+| `POST /v1/patients/{id}/diagnoses` · `DELETE .../{did}` | doctor | Diagnose / dismiss |
+| `GET /v1/patients/{id}/overview?at=` | patient/doctor | Point-in-time clinical overview |
+| `GET /v1/audit?patientId=&type=&from=&to=` | doctor | Audit trail (who changed what, when) |
+| `GET /v1/analytics` | doctor | Tenant usage summary |
 | `GET /internal/events` | worker (token) | SSE event fan-out (split mode) |
 
-Events emitted today: `appointment_booked`, `note_added`, `prescription_added`.
+Events on the log: `appointment_booked`, `note_added`, `note_incomplete`,
+`prescription_added`, `prescription_dispatched`, `diagnosis_added`,
+`diagnosis_dismissed`.
 
 ---
 
@@ -253,19 +264,20 @@ Events emitted today: `appointment_booked`, `note_added`, `prescription_added`.
 
 ---
 
-## Roadmap (remaining feature areas)
+## Roadmap / feature status
 
-Structure is in place for all of these; they attach to the existing event log and
-store interfaces without reworking Feature 1.
+All eight feature areas are implemented against the in-memory core. Each attaches
+to the shared event log and store interfaces; the production database is a
+drop-in adapter (see above).
 
 | # | Feature | Status |
 |---|---------|--------|
 | 1 | Appointments Management | ✅ implemented |
-| 2 | Live Updates (webhooks) | ▶ next |
-| 3 | Notes Streaming (SSE transcription) | designed |
-| 4 | Historical Overview (diagnoses, point-in-time) | designed (event-log fold) |
-| 5 | Pharmacist Dispatch (exactly-once) | designed |
-| 6 | Audit Trail | ✅ event log carries who+when; query endpoint pending |
-| 7 | Usage Analytics | designed (aggregate the log) |
-| 8 | Multi-Tenancy (DB, regions) | logical isolation done; DB/partitioning designed |
+| 2 | Notes Streaming (SSE transcription, gap-aware) | ✅ implemented |
+| 3 | Live Updates (async signed webhooks) | ✅ implemented |
+| 4 | Historical Overview (diagnoses, point-in-time) | ✅ implemented |
+| 5 | Pharmacist Dispatch (exactly-once) | ✅ implemented |
+| 6 | Audit Trail (view over the event log) | ✅ implemented |
+| 7 | Usage Analytics (aggregate the log) | ✅ implemented |
+| 8 | Multi-Tenancy | ✅ logical isolation enforced + tested; DB/region partitioning designed |
 ```
