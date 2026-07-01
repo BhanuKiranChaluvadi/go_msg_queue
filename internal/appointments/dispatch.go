@@ -62,6 +62,8 @@ func (s *Service) DispatchPrescription(ctx context.Context, prescriptionID strin
 	}
 
 	rx.Status = domain.PrescriptionDispatched
+	dispatchedAt := s.clock.Now()
+	rx.DispatchedAt = &dispatchedAt
 	if err := s.prescriptions.Update(ctx, rx); err != nil {
 		return domain.Prescription{}, err
 	}

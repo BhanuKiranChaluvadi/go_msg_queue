@@ -87,6 +87,8 @@ func (s *Server) Handler() http.Handler {
 		authed(tenancy.RequireRole(domain.RoleDoctor, http.HandlerFunc(s.handleDiagnose))))
 	mux.Handle("DELETE /v1/patients/{id}/diagnoses/{did}",
 		authed(tenancy.RequireRole(domain.RoleDoctor, http.HandlerFunc(s.handleDismissDiagnosis))))
+	mux.Handle("GET /v1/patients/{id}/overview",
+		authed(http.HandlerFunc(s.handlePatientOverview)))
 
 	return Chain(mux, RequestID(s.IDGen), Logging(s.Logger))
 }

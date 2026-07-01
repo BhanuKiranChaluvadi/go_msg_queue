@@ -189,6 +189,17 @@ func (st *AppointmentStore) NextForDoctor(_ context.Context, tenant, doctorID st
 	return out, nil
 }
 
+// ListByPatient returns all of a patient's appointments in the tenant.
+func (st *AppointmentStore) ListByPatient(_ context.Context, tenant, patientID string) ([]domain.Appointment, error) {
+	out := make([]domain.Appointment, 0)
+	for _, a := range st.s.List(tenant) {
+		if a.PatientID == patientID {
+			out = append(out, a)
+		}
+	}
+	return out, nil
+}
+
 // --- Notes ---
 
 // NoteStore is the in-memory NoteRepo.

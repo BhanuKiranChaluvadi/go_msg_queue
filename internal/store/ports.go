@@ -30,6 +30,8 @@ type AppointmentRepo interface {
 	ExistsForPatientDoctor(ctx context.Context, tenant, patientID, doctorID string) (bool, error)
 	// NextForDoctor returns the doctor's appointments starting at or after from.
 	NextForDoctor(ctx context.Context, tenant, doctorID string, from time.Time) ([]domain.Appointment, error)
+	// ListByPatient returns all of a patient's appointments in the tenant.
+	ListByPatient(ctx context.Context, tenant, patientID string) ([]domain.Appointment, error)
 }
 
 // NoteRepo stores appointment notes.

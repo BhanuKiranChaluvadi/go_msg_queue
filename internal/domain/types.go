@@ -84,6 +84,7 @@ type Prescription struct {
 	Medication    string             `json:"medication"`
 	IssuedAt      time.Time          `json:"issuedAt"`
 	ExpiresAt     time.Time          `json:"expiresAt"`
+	DispatchedAt  *time.Time         `json:"dispatchedAt,omitempty"`
 	Status        PrescriptionStatus `json:"status"`
 }
 
@@ -91,6 +92,22 @@ type Prescription struct {
 // must not already be dispatched and must not have reached its expiry.
 func (p Prescription) IsActive(now time.Time) bool {
 	return p.Status == PrescriptionActive && now.Before(p.ExpiresAt)
+}
+
+// ActiveAt reports whether the prescription was active at time t, using its
+// timestamps rather than its current status, so a point-in-time overview reflects
+// the state as of t: issued by t, not expired by t, and not dispatched by t.
+func (p Prescription) ActiveAt(t time.Time) bool {
+	if p.IssuedAt.After(t) {
+		return false
+	}
+	if !t.Before(p.ExpiresAt) {
+		return false
+	}
+	if p.DispatchedAt != nil && !p.DispatchedAt.After(t) {
+		return false
+	}
+	return true
 }
 
 // EffectiveStatus resolves the prescription's status at now, deriving Expired
