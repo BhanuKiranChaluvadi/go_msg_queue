@@ -66,4 +66,7 @@ func TestAudit_Handler_RoleAndValidation(t *testing.T) {
 	if rec := doRequest(t, srv, http.MethodGet, "/v1/audit?from=bad", "hosp-A", "doc-a", nil); rec.Code != http.StatusBadRequest {
 		t.Errorf("bad from = %d, want 400", rec.Code)
 	}
+	if rec := doRequest(t, srv, http.MethodGet, "/v1/audit?from=2026-02-01T00:00:00Z&to=2026-01-01T00:00:00Z", "hosp-A", "doc-a", nil); rec.Code != http.StatusBadRequest {
+		t.Errorf("from after to = %d, want 400", rec.Code)
+	}
 }

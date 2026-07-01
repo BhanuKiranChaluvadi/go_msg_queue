@@ -33,6 +33,10 @@ func (s *Server) handleAuditQuery(w http.ResponseWriter, r *http.Request) {
 		}
 		q.To = parsed
 	}
+	if !q.From.IsZero() && !q.To.IsZero() && q.From.After(q.To) {
+		writeError(w, fmt.Errorf("%w: 'from' must not be after 'to'", domain.ErrValidation))
+		return
+	}
 
 	recs, err := s.Audit.Query(r.Context(), q)
 	if err != nil {
