@@ -1,13 +1,17 @@
 package api
 
-import "net/http"
+import (
+	"fmt"
+	"net/http"
+
+	"medconnect/internal/domain"
+)
 
 // handleListActivePrescriptions returns the tenant's active prescriptions for a
 // pharmacist to dispatch. GET /v1/prescriptions?status=active
 func (s *Server) handleListActivePrescriptions(w http.ResponseWriter, r *http.Request) {
 	if status := r.URL.Query().Get("status"); status != "" && status != "active" {
-		// Only the active worklist is supported for now.
-		writeJSON(w, http.StatusOK, []struct{}{})
+		writeError(w, fmt.Errorf("%w: unsupported status filter %q (only \"active\" is supported)", domain.ErrValidation, status))
 		return
 	}
 	list, err := s.Appointments.ListActivePrescriptions(r.Context())

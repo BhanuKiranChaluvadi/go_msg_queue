@@ -39,6 +39,14 @@ func TestListActivePrescriptions_Handler(t *testing.T) {
 	}
 }
 
+func TestListActivePrescriptions_UnsupportedStatusRejected(t *testing.T) {
+	srv := newTestServer()
+	rec := doRequest(t, srv, http.MethodGet, "/v1/prescriptions?status=dispatched", "hosp-A", "pharm-a", nil)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("unsupported status filter = %d, want 400", rec.Code)
+	}
+}
+
 func TestDispatchPrescription_Handler(t *testing.T) {
 	srv := newTestServer()
 	apptID := bookAppointment(t, srv, "hosp-A", "doc-a", "pat-a", 1, 2)
