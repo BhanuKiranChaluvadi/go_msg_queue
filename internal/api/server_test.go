@@ -17,6 +17,7 @@ import (
 	"medconnect/internal/platform"
 	"medconnect/internal/store/memory"
 	"medconnect/internal/tenancy"
+	"medconnect/internal/webhooks"
 )
 
 // apiTestNow is the fixed clock time used by the wired appointments service in
@@ -57,6 +58,7 @@ func newTestServer() *Server {
 		InternalToken: "secret",
 		Resolver:      apiTestResolver(),
 		Appointments:  appts,
+		Webhooks:      webhooks.NewRegistry(memory.NewWebhookStore(), platform.NewFakeIDGen("wh-")),
 	}
 }
 

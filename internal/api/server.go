@@ -16,6 +16,7 @@ import (
 	"medconnect/internal/events"
 	"medconnect/internal/platform"
 	"medconnect/internal/tenancy"
+	"medconnect/internal/webhooks"
 )
 
 // shutdownTimeout bounds how long a graceful shutdown waits for in-flight
@@ -32,6 +33,7 @@ type Server struct {
 	InternalToken string
 	Resolver      tenancy.ActorResolver
 	Appointments  *appointments.Service
+	Webhooks      *webhooks.Registry
 }
 
 // Handler builds the fully-wrapped HTTP handler: routes plus the request-id and
@@ -62,6 +64,12 @@ func (s *Server) Handler() http.Handler {
 		authed(tenancy.RequireRole(domain.RoleDoctor, http.HandlerFunc(s.handleAddNote))))
 	mux.Handle("POST /v1/appointments/{id}/prescriptions",
 		authed(tenancy.RequireRole(domain.RoleDoctor, http.HandlerFunc(s.handleIssuePrescription))))
+
+	// Live updates — webhook subscriptions (Feature 3).
+	mux.Handle("POST /v1/webhooks",
+		authed(tenancy.RequireRole(domain.RolePatient, http.HandlerFunc(s.handleRegisterWebhook))))
+	mux.Handle("DELETE /v1/webhooks/{id}",
+		authed(tenancy.RequireRole(domain.RolePatient, http.HandlerFunc(s.handleUnregisterWebhook))))
 
 	return Chain(mux, RequestID(s.IDGen), Logging(s.Logger))
 }

@@ -20,6 +20,7 @@ import (
 	"medconnect/internal/platform"
 	"medconnect/internal/store/memory"
 	"medconnect/internal/tenancy"
+	"medconnect/internal/webhooks"
 )
 
 func main() {
@@ -48,6 +49,7 @@ func main() {
 		IDGen:         idgen,
 		Events:        publisher,
 	})
+	webhookRegistry := webhooks.NewRegistry(memory.NewWebhookStore(), idgen)
 
 	// Dev-only actor seed. Production replaces this with a user store / JWT auth.
 	resolver := tenancy.StaticResolver{
@@ -63,6 +65,7 @@ func main() {
 		InternalToken: *internalToken,
 		Resolver:      resolver,
 		Appointments:  appts,
+		Webhooks:      webhookRegistry,
 	}
 
 	logger.Info("starting hub", "embedWorkers", *embedWorkers)
