@@ -64,7 +64,10 @@ Every `/v1` request is authenticated with two headers:
 > and `pharmacist`. (In production this header-based identity is replaced by
 > JWT/OAuth2 with the same resolver seam.)
 
-A complete walkthrough with `curl` (start the server with `make run` first):
+A complete walkthrough with `curl` (start the server with `make run` first). It
+uses [`jq`](https://jqlang.github.io/jq/) to capture the server-generated ids
+(slot, appointment, prescription) into shell variables, so the block runs as-is —
+there are no `<...>` placeholders to fill in by hand:
 
 ```bash
 BASE=localhost:8080
@@ -75,45 +78,53 @@ PHARM='-H X-Tenant-ID:demo -H X-User-ID:pharmacist'
 # health check
 curl $BASE/healthz
 
-# 1) doctor publishes an availability slot  -> returns the slot (note its "id")
-curl -X POST $BASE/v1/timeslots $DOC \
-  -d '{"start":"2027-01-01T09:00:00Z","end":"2027-01-01T09:30:00Z"}'
+# 1) doctor publishes an availability slot; capture its id
+SLOT=$(curl -s -X POST $BASE/v1/timeslots $DOC \
+  -d '{"start":"2027-03-01T09:00:00Z","end":"2027-03-01T09:30:00Z"}' | jq -r .id)
 
 # 2) patient lists the doctor's open slots
 curl "$BASE/v1/doctors/doctor/timeslots" $PAT
 
-# 3) patient books a slot  -> returns the appointment (note its "id")
-curl -X POST $BASE/v1/appointments $PAT \
-  -d '{"doctorId":"doctor","timeslotId":"<SLOT_ID>"}'
+# 3) patient books that slot; capture the appointment id
+APPT=$(curl -s -X POST $BASE/v1/appointments $PAT \
+  -d "{\"doctorId\":\"doctor\",\"timeslotId\":\"$SLOT\"}" | jq -r .id)
 
 # 4) patient registers a webhook for live updates (point at your receiver)
 curl -X POST $BASE/v1/webhooks $PAT \
   -d '{"url":"https://example.test/hook","eventTypes":["note_added","prescription_added"]}'
 
-# 5) doctor adds a note and issues a prescription on the appointment
-curl -X POST $BASE/v1/appointments/<APPT_ID>/notes $DOC \
+# 5) doctor adds a note and issues a prescription; capture the prescription id
+curl -X POST $BASE/v1/appointments/$APPT/notes $DOC \
   -d '{"text":"Patient reports headache."}'
-curl -X POST $BASE/v1/appointments/<APPT_ID>/prescriptions $DOC \
-  -d '{"medication":"Aspirin 100mg","expiresAt":"2027-02-01T00:00:00Z"}'
+RX=$(curl -s -X POST $BASE/v1/appointments/$APPT/prescriptions $DOC \
+  -d '{"medication":"Aspirin 100mg","expiresAt":"2027-04-01T00:00:00Z"}' | jq -r .id)
 
-# 6) doctor starts streamed dictation (needs a transcription server; see flags)
-curl -X POST $BASE/v1/appointments/<APPT_ID>/transcription $DOC
+# 6) doctor starts streamed dictation (returns 202; note assembly needs a
+#    transcription server — see the flags below)
+curl -X POST $BASE/v1/appointments/$APPT/transcription $DOC
 
-# 7) pharmacist lists active prescriptions and dispatches one
+# 7) pharmacist lists active prescriptions and dispatches the one above
 curl "$BASE/v1/prescriptions?status=active" $PHARM
-curl -X POST $BASE/v1/prescriptions/<RX_ID>/dispatch $PHARM
+curl -X POST $BASE/v1/prescriptions/$RX/dispatch $PHARM
 
 # 8) doctor diagnoses the patient
 curl -X POST $BASE/v1/patients/patient/diagnoses $DOC -d '{"disease":"Migraine"}'
 
 # 9) overviews
-curl $BASE/v1/appointments/<APPT_ID> $PAT                       # appointment + notes + rx
-curl "$BASE/v1/patients/patient/overview?at=2027-01-02T00:00:00Z" $DOC   # point-in-time
+curl $BASE/v1/appointments/$APPT $PAT                            # appointment + notes + rx
+curl "$BASE/v1/patients/patient/overview?at=2027-06-01T00:00:00Z" $DOC   # point-in-time
 
-# 10) audit trail and usage analytics (doctor / org staff)
+# 10) audit trail and usage analytics
 curl "$BASE/v1/audit?patientId=patient" $DOC
 curl $BASE/v1/analytics $DOC
 ```
+
+> **Re-running the booking?** The demo tenant seeds a single `doctor` and a single
+> `patient`, and a patient may hold **at most one appointment per doctor**. Booking
+> a second time returns `409 conflict`, which leaves `$APPT` empty and makes the
+> later steps `404`. Restart the server (`make run`) for a clean, empty store. If
+> you don't have `jq`, copy the `id` from each response and paste it into the next
+> request by hand (that `<SLOT_ID>`-style value is what must be substituted).
 
 Responses are JSON; errors use `{"error":{"code","message"}}` with the matching
 HTTP status (`400/401/403/404/409`). Collection endpoints (the `GET` lists above)
