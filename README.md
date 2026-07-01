@@ -46,6 +46,7 @@ make check      # fmt + vet + build + race (the full local gate)
 | Command | Description |
 |---------|-------------|
 | `make run` | Start the server (`:8080`), workers embedded |
+| `make demo` | Run the end-to-end API walkthrough script (server must be running) |
 | `make test` / `make race` | Tests / tests under the race detector |
 | `make check` | fmt + vet + build + race |
 | `make build` | Compile `./bin/server` |
@@ -130,6 +131,37 @@ Responses are JSON; errors use `{"error":{"code","message"}}` with the matching
 HTTP status (`400/401/403/404/409`). Collection endpoints (the `GET` lists above)
 return a `{"data": [...]}` envelope so the shape can grow (e.g. pagination
 metadata) without breaking existing clients.
+
+### End-to-end demo script
+
+[`scripts/demo.sh`](scripts/demo.sh) runs the whole appointment lifecycle for you
+and checks each result (it doubles as a smoke test — it exits non-zero if any
+check fails). It walks through: a doctor publishing a slot → the patient seeing
+it → booking it → confirming the slot is now booked → the doctor and patient both
+seeing the appointment → a non-participant being refused → appointments being
+immutable (no update endpoint, so `PATCH`/`PUT` return `405`) → the one-booking-
+per-patient-doctor rule (`409`).
+
+```bash
+make run          # terminal 1: start the server on :8080
+make demo         # terminal 2: run the walkthrough (or: ./scripts/demo.sh)
+```
+
+Point it at a different host with `BASE=http://host:port ./scripts/demo.sh`. It
+needs `curl` and `jq`, and expects a freshly started server (the booking step
+only succeeds on a clean store — see the note above). Sample output:
+
+```text
+══ 3. Patient books the slot ══
+  ✓ PASS appointment booked (HTTP 201)
+...
+══ 8. Can the patient or doctor update the appointment? ══
+  ✓ PASS doctor PATCH is rejected (HTTP 405)
+  ✓ PASS patient PUT is rejected (HTTP 405)
+  supported methods on this route: GET, HEAD (read-only)
+
+All 14 checks passed.
+```
 
 ### Configuration flags
 

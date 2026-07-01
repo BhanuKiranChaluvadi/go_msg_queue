@@ -1,7 +1,7 @@
 MODULE := medconnect
 BIN    := bin
 
-.PHONY: all build test race cover vet fmt check run clean help
+.PHONY: all build test race cover vet fmt check run demo clean help
 
 all: build
 
@@ -38,6 +38,10 @@ check: fmt vet build race
 ## run — start the API hub on :8080 (single binary, workers embedded)
 run: build
 	./$(BIN)/server -addr :8080
+
+## demo — run the end-to-end API walkthrough (needs a running server: make run)
+demo:
+	./scripts/demo.sh
 
 ## clean — remove compiled binaries and coverage output
 clean:
