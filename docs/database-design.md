@@ -33,7 +33,16 @@ People inside **Ada General Hospital** (`hosp-ada`):
 |---|---|---|
 | **Dr. Alice** | `doc-alice` | doctor |
 | **Bob** (patient) | `pat-bob` | patient |
-| **Pia** (pharmacist) | `pharm-pia` | pharmacist |
+
+**Pia** the pharmacist does **not** work for the hospital. In Sweden (and most
+places) pharmacies are **separate businesses out on the street** — there are many
+of them, each with many pharmacists. Pia works at **Malmö Apotek** (`pharm-malmo`),
+its own organization. She logs into the system and hands over a medicine **only if
+a valid prescription exists**. (Why this matters for "tenants" is explained in §2.)
+
+| Person | id | works at | role |
+|---|---|---|---|
+| **Pia** (pharmacist) | `pharm-pia` | Malmö Apotek (`pharm-malmo`) | pharmacist |
 
 The one thing that happens in our story:
 
@@ -64,6 +73,10 @@ We will put this exact story into database tables below.
 - **A "tenant" is a whole hospital organization** (Ada General Hospital), not a
   single building or room. It is the "wall" that keeps one hospital's data away
   from another's.
+- **Pharmacists are NOT part of a hospital.** They work at independent pharmacies
+  (their own organizations). A prescription must be dispensable at **any** pharmacy,
+  so prescriptions live in a **shared registry** that external pharmacists read —
+  the dispatch step deliberately crosses the hospital wall (see §2.2).
 - **CockroachDB is a real relational database (RDBMS)**. Its indexes are **sorted
   like a B-tree** (so range scans work), but under the floor it stores data in an
   **LSM-tree** engine — not a classic on-disk B-tree like PostgreSQL. Both behave
@@ -136,6 +149,45 @@ Every single row in every table carries a `tenant_id`. Every query says "…and 
 where `tenant_id = 'hosp-ada'`." That is how **Ada General Hospital** can never see
 **Bayview Clinic's** patients, and vice-versa.
 
+### 2.2 …but pharmacists live *outside* the hospital wall
+
+Here is the real-world twist you must model correctly. A **doctor** and a
+**patient** belong to a hospital. A **pharmacist does not.** A hospital **may or
+may not** have its own in-house pharmacy — it is optional and not guaranteed — but
+in general pharmacists are **independent**. In Malmö (and almost everywhere)
+pharmacies are **separate shops on the street** — many pharmacies, many
+pharmacists — and a patient can walk into **any** of them to collect a medicine.
+
+So a pharmacist is **not** a `user` inside `hosp-ada`. Pia belongs to her own
+organization, **Malmö Apotek** (`pharm-malmo`). This means the pharmacy is its own
+kind of tenant, and the dispatch step has to **reach across** the hospital wall.
+
+**How real systems solve this (and how we would):** the prescription is not kept
+locked inside one hospital. It is published to a **shared prescription registry** —
+in Sweden this is literally the national **e-recept** system run by
+E-hälsomyndigheten. Any pharmacy queries that registry by patient, sees the active
+prescription, and dispenses it. So:
+
+- **Hospital tenant** (`hosp-ada`) owns: doctors, patients, appointments, notes,
+  diagnoses — the clinical context.
+- **Pharmacy** (`pharm-malmo`) owns: its pharmacists. It is a **different tenant**.
+- **Prescriptions** are written by the hospital **and published to a shared
+  registry** that external pharmacists can read and dispatch against. This is the
+  one place we intentionally cross the tenant wall — by design, not by accident.
+
+**ELI5:** the hospital is a locked apartment; the pharmacy is a *different*
+apartment down the road. The prescription is like a **letter dropped into a shared
+post office** (the national registry) — any pharmacy can pick it up and fulfil it,
+but neither can wander into the other's private rooms.
+
+> **What the current code does (a stated simplification).** To keep the 4-hour demo
+> simple, the running server seeds the pharmacist as a `user` **inside** the tenant
+> and scopes dispatch to that tenant. That is a shortcut, **not** the realistic
+> model above. The clean version separates pharmacies into their own tenants and
+> routes dispatch through the shared prescription registry — a change isolated to
+> the prescription store/adapter, because dispatch already goes through the
+> `Repository` seam.
+
 ### Glossary (simple words)
 
 - **Tenant** — one hospital organization; the wall that separates data.
@@ -203,8 +255,11 @@ tenant_id | id         | role       | name
 ----------+------------+------------+-----------
 hosp-ada  | doc-alice  | doctor     | Dr. Alice
 hosp-ada  | pat-bob    | patient    | Bob
-hosp-ada  | pharm-pia  | pharmacist | Pia
 ```
+
+> **Pharmacists are not in this hospital's `user` table.** Pia lives under her
+> pharmacy's tenant, e.g. `pharm-malmo | pharm-pia | pharmacist | Pia`. See §2.2 —
+> she reaches the prescription through the shared registry, not through `hosp-ada`.
 
 ### 3.3 `timeslot` — a doctor's free time
 
@@ -278,6 +333,12 @@ hosp-ada  | note-1 | appt-1         | manual | complete | Patient reports headac
 | `dispatched_at` | timestamptz null | filled when a pharmacist dispatches |
 | `status` | text | `active` \| `dispatched` \| `expired` |
 
+> **Shared beyond the hospital.** Because an external pharmacy must be able to
+> dispense it (§2.2), a prescription is published to a **shared registry** keyed by
+> `patient_id`, not sealed inside the hospital tenant. The `tenant_id` here records
+> *which hospital issued it*, but read/dispatch access is granted to external
+> pharmacists too.
+
 ```
 tenant_id | id   | appointment_id | patient_id | medication    | expires_at        | status
 ----------+------+----------------+------------+---------------+-------------------+----------
@@ -288,10 +349,11 @@ hosp-ada  | rx-1 | appt-1         | pat-bob    | Aspirin 100mg | 2027-04-01T00:0
 
 | column | type | why |
 |---|---|---|
-| `tenant_id` **PK** | text | hospital |
+| `tenant_id` **PK** | text | hospital that issued the prescription |
 | `id` **PK** | text | `disp-1` |
 | `prescription_id` **FK→prescription.id** | text | which medicine |
-| `pharmacist_id` **FK→user.id** | text | who dispatched it |
+| `pharmacist_id` **FK→user.id** | text | who dispatched it — an **external** pharmacist (e.g. Pia at `pharm-malmo`), not a hospital user (§2.2) |
+| `pharmacy_id` *(suggested)* | text | which pharmacy fulfilled it |
 | `dispatched_at` | timestamptz | when |
 
 ```
@@ -416,7 +478,7 @@ appointment): `doctor_id` and `patient_id`.
 | Bridge table | Connects… | Extra data it carries |
 |---|---|---|
 | **`appointment`** | `user`(doctor) ↔ `user`(patient) ↔ `timeslot` | status, start/end, created_at |
-| **`dispatch`** | `prescription` ↔ `user`(pharmacist) | dispatched_at |
+| **`dispatch`** | `prescription` ↔ `user`(**external** pharmacist) | dispatched_at, pharmacy_id |
 | **`webhook_event_type`** | `webhook` ↔ event-type list | (pure junction) |
 
 Child tables (not bridges, just "belongs-to"): `note` and `prescription` belong to
@@ -434,7 +496,7 @@ erDiagram
     APPOINTMENT ||--o{ NOTE : "has"
     APPOINTMENT ||--o{ PRESCRIPTION : "produces"
     PRESCRIPTION ||--o| DISPATCH : "fulfilled by"
-    USER ||--o{ DISPATCH : "pharmacist does"
+    USER ||--o{ DISPATCH : "external pharmacist does"
     USER ||--o{ DIAGNOSIS : "recorded for patient"
     USER ||--o{ WEBHOOK : "patient registers"
     WEBHOOK ||--o{ WEBHOOK_EVENT_TYPE : "wants"
@@ -568,8 +630,10 @@ adapter, not a rewrite.**
 
 - **DB:** CockroachDB (distributed, Postgres-compatible, serializable, region-aware).
   Start on PostgreSQL if you like — same SQL.
-- **Tenant:** a whole **hospital organization** (e.g. Ada General Hospital); the wall
-  that isolates data; every row carries `tenant_id`.
+- **Tenant:** a whole **hospital organization** (e.g. Ada General Hospital) for its
+  doctors and patients; the wall that isolates data; every row carries `tenant_id`.
+  **Pharmacies are separate tenants** — pharmacists are external, and reach
+  prescriptions through a **shared registry** (§2.2), not through the hospital.
 - **Tables:** one per entity we already model; `appointment` & `dispatch` are
   **bridge tables**; `webhook_event_type` is a small pure junction.
 - **Recursion:** yes — **user → appointment → user** (doctor ↔ patient), the same
