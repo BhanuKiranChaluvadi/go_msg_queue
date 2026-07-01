@@ -3,6 +3,8 @@ package appointments
 import (
 	"context"
 	"errors"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -80,4 +82,89 @@ func rxIDs(rx []domain.Prescription) []string {
 		out[i] = p.ID
 	}
 	return out
+}
+
+func TestDispatchPrescription_Success(t *testing.T) {
+	svc, store, pub := dispatchFixtures()
+	seedRx(t, store, "rx-1", "hosp-A", domain.PrescriptionActive, testNow.Add(24*time.Hour))
+
+	rx, err := svc.DispatchPrescription(pharmacistCtxD("hosp-A", "pharm-1"), "rx-1")
+	if err != nil {
+		t.Fatalf("dispatch: %v", err)
+	}
+	if rx.Status != domain.PrescriptionDispatched {
+		t.Errorf("status = %q, want dispatched", rx.Status)
+	}
+	// Persisted as dispatched.
+	stored, _ := store.Get(context.Background(), "hosp-A", "rx-1")
+	if stored.Status != domain.PrescriptionDispatched {
+		t.Errorf("stored status = %q, want dispatched", stored.Status)
+	}
+	// Event emitted with pharmacist identity.
+	evs := pub.byType(domain.EventPrescriptionDispatched)
+	if len(evs) != 1 || evs[0].Payload["pharmacistId"] != "pharm-1" {
+		t.Errorf("events = %+v, want one dispatched by pharm-1", evs)
+	}
+}
+
+func TestDispatchPrescription_AlreadyDispatchedOrExpired(t *testing.T) {
+	svc, store, _ := dispatchFixtures()
+	seedRx(t, store, "done", "hosp-A", domain.PrescriptionDispatched, testNow.Add(24*time.Hour))
+	seedRx(t, store, "old", "hosp-A", domain.PrescriptionActive, testNow.Add(-time.Hour)) // expired
+
+	if _, err := svc.DispatchPrescription(pharmacistCtxD("hosp-A", "pharm-1"), "done"); !errors.Is(err, domain.ErrConflict) {
+		t.Errorf("dispatched err = %v, want ErrConflict", err)
+	}
+	if _, err := svc.DispatchPrescription(pharmacistCtxD("hosp-A", "pharm-1"), "old"); !errors.Is(err, domain.ErrConflict) {
+		t.Errorf("expired err = %v, want ErrConflict", err)
+	}
+}
+
+func TestDispatchPrescription_UnknownCrossTenantNoActor(t *testing.T) {
+	svc, store, _ := dispatchFixtures()
+	seedRx(t, store, "rx-1", "hosp-A", domain.PrescriptionActive, testNow.Add(24*time.Hour))
+
+	if _, err := svc.DispatchPrescription(pharmacistCtxD("hosp-A", "pharm-1"), "nope"); !errors.Is(err, domain.ErrNotFound) {
+		t.Errorf("unknown err = %v, want ErrNotFound", err)
+	}
+	if _, err := svc.DispatchPrescription(pharmacistCtxD("hosp-B", "pharm-2"), "rx-1"); !errors.Is(err, domain.ErrNotFound) {
+		t.Errorf("cross-tenant err = %v, want ErrNotFound", err)
+	}
+	if _, err := svc.DispatchPrescription(context.Background(), "rx-1"); !errors.Is(err, domain.ErrForbidden) {
+		t.Errorf("no-actor err = %v, want ErrForbidden", err)
+	}
+}
+
+// TestDispatchPrescription_ConcurrentExactlyOnce proves that many concurrent
+// dispatches of the same active prescription result in exactly one success.
+func TestDispatchPrescription_ConcurrentExactlyOnce(t *testing.T) {
+	svc, store, pub := dispatchFixtures()
+	seedRx(t, store, "rx-1", "hosp-A", domain.PrescriptionActive, testNow.Add(24*time.Hour))
+
+	const n = 25
+	var success, conflict int64
+	var wg sync.WaitGroup
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, err := svc.DispatchPrescription(pharmacistCtxD("hosp-A", "pharm-1"), "rx-1")
+			switch {
+			case err == nil:
+				atomic.AddInt64(&success, 1)
+			case errors.Is(err, domain.ErrConflict):
+				atomic.AddInt64(&conflict, 1)
+			default:
+				t.Errorf("unexpected error: %v", err)
+			}
+		}()
+	}
+	wg.Wait()
+
+	if success != 1 || conflict != n-1 {
+		t.Errorf("success=%d conflict=%d, want 1 and %d", success, conflict, n-1)
+	}
+	if got := len(pub.byType(domain.EventPrescriptionDispatched)); got != 1 {
+		t.Errorf("dispatched events = %d, want 1", got)
+	}
 }

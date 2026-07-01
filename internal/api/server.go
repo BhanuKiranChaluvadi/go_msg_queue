@@ -77,6 +77,8 @@ func (s *Server) Handler() http.Handler {
 	// Pharmacist dispatch (Feature 5).
 	mux.Handle("GET /v1/prescriptions",
 		authed(tenancy.RequireRole(domain.RolePharmacist, http.HandlerFunc(s.handleListActivePrescriptions))))
+	mux.Handle("POST /v1/prescriptions/{id}/dispatch",
+		authed(tenancy.RequireRole(domain.RolePharmacist, http.HandlerFunc(s.handleDispatchPrescription))))
 
 	return Chain(mux, RequestID(s.IDGen), Logging(s.Logger))
 }
