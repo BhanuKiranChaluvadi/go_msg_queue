@@ -6,13 +6,28 @@ notes via an external transcription stream, issue prescriptions, and diagnose;
 pharmacists dispatch medicines. Each **hospital organization is an isolated
 tenant**.
 
-> **Scope note.** This is a ~4-hour technical assessment. It is **backend only —
-> there is no UI by design**; every capability is exercised over HTTP/JSON and by
-> an automated test suite. The brief lists eight feature areas; the goal is a
-> clean, correct core plus an architecture that visibly *accommodates* the rest.
-> Full requirements: [docs/Question.md](docs/Question.md). Design & plan:
-> [docs/specifications-healthcare.md](docs/specifications-healthcare.md),
-> [docs/plan-healthcare.md](docs/plan-healthcare.md).
+> **Scope note.** This service is **backend only — there is no UI by design**;
+> every capability is exercised over HTTP/JSON and by an automated test suite.
+> The goal is a clean, correct core plus an architecture that visibly
+> *accommodates* production concerns.
+
+---
+
+## Capabilities
+
+Each capability attaches to the shared event log and store interfaces; the
+production database is a drop-in adapter (see below).
+
+| # | Capability | Status |
+|---|---------|--------|
+| 1 | Appointments Management | ✅ implemented |
+| 2 | Notes Streaming (SSE transcription, gap-aware) | ✅ implemented |
+| 3 | Live Updates (async signed webhooks) | ✅ implemented |
+| 4 | Historical Overview (diagnoses, point-in-time) | ✅ implemented |
+| 5 | Pharmacist Dispatch (exactly-once) | ✅ implemented |
+| 6 | Audit Trail (view over the event log) | ✅ implemented |
+| 7 | Usage Analytics (aggregate the log) | ✅ implemented |
+| 8 | Multi-Tenancy | ✅ logical isolation enforced + tested; DB/region partitioning designed |
 
 ---
 
@@ -121,6 +136,36 @@ Environment equivalents: `MEDCONNECT_INTERNAL_TOKEN`,
 
 ---
 
+## API
+
+All `/v1` routes require `X-Tenant-ID` + `X-User-ID`. Errors use a consistent
+`{"error":{"code","message"}}` envelope.
+
+| Method & Path | Role | Purpose |
+|---|---|---|
+| `POST /v1/timeslots` | doctor | Register an availability slot |
+| `GET /v1/doctors/{id}/timeslots` | any | List a doctor's open slots |
+| `POST /v1/appointments` | patient | Book a slot (≤1 per patient-doctor, no double-book) |
+| `GET /v1/appointments/next` | doctor | Upcoming appointments |
+| `GET /v1/appointments/{id}` | participants | Overview: appointment + notes + prescriptions |
+| `POST /v1/appointments/{id}/notes` | doctor | Add a manual note |
+| `POST /v1/appointments/{id}/prescriptions` | doctor | Issue a prescription |
+| `POST /v1/appointments/{id}/transcription` | doctor | Start streamed dictation (202, background) |
+| `POST /v1/webhooks` · `DELETE /v1/webhooks/{id}` | patient | Register / remove a live-update webhook |
+| `GET /v1/prescriptions?status=active` | pharmacist | Active-prescription worklist |
+| `POST /v1/prescriptions/{id}/dispatch` | pharmacist | Dispatch a prescription (exactly-once) |
+| `POST /v1/patients/{id}/diagnoses` · `DELETE .../{did}` | doctor | Diagnose / dismiss |
+| `GET /v1/patients/{id}/overview?at=` | patient/doctor | Point-in-time clinical overview |
+| `GET /v1/audit?patientId=&type=&from=&to=` | doctor | Audit trail (who changed what, when) |
+| `GET /v1/analytics` | doctor | Tenant usage summary |
+| `GET /internal/events` | worker (token) | SSE event fan-out (split mode) |
+
+Events on the log: `appointment_booked`, `note_added`, `note_incomplete`,
+`prescription_added`, `prescription_dispatched`, `diagnosis_added`,
+`diagnosis_dismissed`.
+
+---
+
 ## Architecture Overview
 
 A **modular monolith**: one deployable binary with clean, interface-separated
@@ -153,7 +198,7 @@ without touching business logic.
         ▼
  ┌───────────────────────────────────────────────┐
  │  Persistence                                   │
- │    NOW  →  in-memory (maps + RWMutex)          │   ← the 4h core
+ │    NOW  →  in-memory (maps + RWMutex)          │   ← the core
  │    PROD →  PostgreSQL / CockroachDB            │   ← drop-in adapter
  │            (per-tenant, region-partitioned)    │
  └───────────────────────────────────────────────┘
@@ -168,7 +213,7 @@ without touching business logic.
 |---------|-----------|----------|-----|
 | Client API | client → us | **REST + JSON** | stdlib, universal, trivially testable |
 | Transcription | external → us | **SSE (consumed)** | the source already emits `data: {...}` — that *is* SSE; a `bufio.Scanner` loop, no library |
-| Live updates | us → patient | **outbound webhook (HTTP POST)** | required by the brief; delivered async so it never blocks the request path |
+| Live updates | us → patient | **outbound webhook (HTTP POST)** | delivered async so it never blocks the request path |
 
 ---
 
@@ -177,9 +222,9 @@ without touching business logic.
 **Today: no running database.** The core persists to Go maps guarded by a
 `sync.RWMutex`, hidden behind six `Repository` interfaces (`internal/store`).
 
-**Why in-memory for the assessment**
+**Why in-memory**
 
-- Zero infrastructure to stand up → all four hours go into domain logic.
+- Zero infrastructure to stand up → all effort goes into domain logic.
 - Standard-library-only core → nothing to install, trivial to review and run.
 - Deterministic and fast under `go test -race` (with injectable `Clock`/`IDGen`).
 
@@ -197,7 +242,7 @@ database*, not an architectural shortcut:
 
 **How the design scales (production target).** The service is **stateless**, so
 it scales horizontally behind a load balancer; all durable state lives in the
-database. For the brief's targets (**10 M users/tenant, multi-region**):
+database. At the production targets (**10 M users/tenant, multi-region**):
 
 - **CockroachDB** (Go-friendly, horizontally scalable, geo-distributed) is the
   intended engine, with data **partitioned by `tenantId`** and **region-pinned**
@@ -216,8 +261,7 @@ design.**
 
 ## Key Decisions & Rationale
 
-Short version of the "why". Fuller reasoning lives in
-[docs/specifications-healthcare.md](docs/specifications-healthcare.md).
+Short version of the "why".
 
 1. **REST + SSE + outbound webhooks (not WebSocket/gRPC).** We are never a
    streaming *server* — we *consume* one SSE stream and *send* small POSTs — so
@@ -253,7 +297,7 @@ Short version of the "why". Fuller reasoning lives in
    once state is externalized and a workload needs independent scaling; keeping it
    a config flag (`-embed-workers`) avoids committing to either extreme.
 
-6. **Simplified auth for the exercise.** Identity comes from `X-Tenant-ID` /
+6. **Simplified auth.** Identity comes from `X-Tenant-ID` /
    `X-User-ID` headers resolved to an actor + role. Production swaps in JWT/OAuth2
    with the same `ActorResolver` seam; nothing else changes.
 
@@ -277,41 +321,10 @@ internal/
   platform/            → Clock + IDGen (real + fake, for deterministic tests)
   protocol/            → tiny internal contract + reusable SSE client
   api/                 → HTTP routing, middleware, JSON envelope, handlers
-docs/                  → the brief, specification, plan (design rationale)
 ```
 
 Layering (hexagonal): `domain` ← `store` ports ← `services` ← `api`. Handlers are
 thin; rules live in services; I/O is behind interfaces.
-
----
-
-## API
-
-All `/v1` routes require `X-Tenant-ID` + `X-User-ID`. Errors use a consistent
-`{"error":{"code","message"}}` envelope.
-
-| Method & Path | Role | Purpose |
-|---|---|---|
-| `POST /v1/timeslots` | doctor | Register an availability slot |
-| `GET /v1/doctors/{id}/timeslots` | any | List a doctor's open slots |
-| `POST /v1/appointments` | patient | Book a slot (≤1 per patient-doctor, no double-book) |
-| `GET /v1/appointments/next` | doctor | Upcoming appointments |
-| `GET /v1/appointments/{id}` | participants | Overview: appointment + notes + prescriptions |
-| `POST /v1/appointments/{id}/notes` | doctor | Add a manual note |
-| `POST /v1/appointments/{id}/prescriptions` | doctor | Issue a prescription |
-| `POST /v1/appointments/{id}/transcription` | doctor | Start streamed dictation (202, background) |
-| `POST /v1/webhooks` · `DELETE /v1/webhooks/{id}` | patient | Register / remove a live-update webhook |
-| `GET /v1/prescriptions?status=active` | pharmacist | Active-prescription worklist |
-| `POST /v1/prescriptions/{id}/dispatch` | pharmacist | Dispatch a prescription (exactly-once) |
-| `POST /v1/patients/{id}/diagnoses` · `DELETE .../{did}` | doctor | Diagnose / dismiss |
-| `GET /v1/patients/{id}/overview?at=` | patient/doctor | Point-in-time clinical overview |
-| `GET /v1/audit?patientId=&type=&from=&to=` | doctor | Audit trail (who changed what, when) |
-| `GET /v1/analytics` | doctor | Tenant usage summary |
-| `GET /internal/events` | worker (token) | SSE event fan-out (split mode) |
-
-Events on the log: `appointment_booked`, `note_added`, `note_incomplete`,
-`prescription_added`, `prescription_dispatched`, `diagnosis_added`,
-`diagnosis_dismissed`.
 
 ---
 
@@ -324,23 +337,4 @@ Events on the log: `appointment_booked`, `note_added`, `note_incomplete`,
   multiple doctors, and multiple hospitals (tenants)**, plus `-race` concurrency
   proofs for booking invariants.
 - Run: `make race` (or `make check` for the full gate). All packages are green.
-
----
-
-## Capabilities
-
-All eight capability areas are implemented against the in-memory core. Each attaches
-to the shared event log and store interfaces; the production database is a
-drop-in adapter (see above).
-
-| # | Capability | Status |
-|---|---------|--------|
-| 1 | Appointments Management | ✅ implemented |
-| 2 | Notes Streaming (SSE transcription, gap-aware) | ✅ implemented |
-| 3 | Live Updates (async signed webhooks) | ✅ implemented |
-| 4 | Historical Overview (diagnoses, point-in-time) | ✅ implemented |
-| 5 | Pharmacist Dispatch (exactly-once) | ✅ implemented |
-| 6 | Audit Trail (view over the event log) | ✅ implemented |
-| 7 | Usage Analytics (aggregate the log) | ✅ implemented |
-| 8 | Multi-Tenancy | ✅ logical isolation enforced + tested; DB/region partitioning designed |
 ```
