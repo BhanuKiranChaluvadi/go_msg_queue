@@ -57,5 +57,12 @@ func (s *Service) AppointmentOverview(ctx context.Context, appointmentID string)
 		return prescriptions[i].IssuedAt.Before(prescriptions[j].IssuedAt)
 	})
 
+	// Report each prescription's status as of now: without a background sweep the
+	// stored status stays "active" past expiry, so derive it for the response.
+	now := s.clock.Now()
+	for i := range prescriptions {
+		prescriptions[i].Status = prescriptions[i].EffectiveStatus(now)
+	}
+
 	return Overview{Appointment: appt, Notes: notes, Prescriptions: prescriptions}, nil
 }

@@ -68,6 +68,27 @@ func TestAppointmentOverview_ParticipantsSeeEverything(t *testing.T) {
 	}
 }
 
+func TestAppointmentOverview_ReportsEffectivePrescriptionStatus(t *testing.T) {
+	svc, apptStore, _, rxStore := overviewFixtures()
+	seedAppt(t, apptStore, domain.Appointment{ID: "appt-1", TenantID: "hosp-A", DoctorID: "doc-1", PatientID: "pat-1", Status: domain.AppointmentScheduled})
+
+	// Issued and expired before the fake clock's "now", but still stored as active
+	// because nothing sweeps it. The overview must report it as expired.
+	_ = rxStore.Create(context.Background(), domain.Prescription{
+		ID: "rx-exp", TenantID: "hosp-A", AppointmentID: "appt-1", PatientID: "pat-1",
+		Medication: "Old", IssuedAt: testNow.Add(-48 * time.Hour), ExpiresAt: testNow.Add(-24 * time.Hour),
+		Status: domain.PrescriptionActive,
+	})
+
+	ov, err := svc.AppointmentOverview(doctorCtx("hosp-A", "doc-1"), "appt-1")
+	if err != nil {
+		t.Fatalf("overview: %v", err)
+	}
+	if len(ov.Prescriptions) != 1 || ov.Prescriptions[0].Status != domain.PrescriptionExpired {
+		t.Errorf("prescription status = %+v, want expired", ov.Prescriptions)
+	}
+}
+
 func TestAppointmentOverview_NonParticipantsForbidden(t *testing.T) {
 	svc, _ := seedOverview(t)
 	tests := map[string]context.Context{
