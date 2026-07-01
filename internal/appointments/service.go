@@ -5,24 +5,54 @@
 package appointments
 
 import (
+	"context"
+	"sync"
+
+	"medconnect/internal/domain"
 	"medconnect/internal/platform"
 	"medconnect/internal/store"
 )
 
+// EventPublisher is the narrow slice of the event pipeline the service needs:
+// it publishes a domain event. Depending on this interface (not the concrete
+// publisher) keeps the service testable and decoupled.
+type EventPublisher interface {
+	Publish(ctx context.Context, e domain.Event) domain.Event
+}
+
+// Deps groups the Service's collaborators. Using a struct keeps the constructor
+// stable as more repositories are added in later slices.
+type Deps struct {
+	Timeslots    store.TimeslotRepo
+	Appointments store.AppointmentRepo
+	Clock        platform.Clock
+	IDGen        platform.IDGen
+	Events       EventPublisher
+}
+
 // Service implements appointment-management use cases. Dependencies are injected
-// as interfaces (dependency inversion) so the concrete stores, clock, and id
-// generator can vary without touching business logic.
+// as interfaces (dependency inversion) so the concrete stores, clock, id
+// generator, and event publisher can vary without touching business logic.
 type Service struct {
-	timeslots store.TimeslotRepo
-	clock     platform.Clock
-	ids       platform.IDGen
+	timeslots    store.TimeslotRepo
+	appointments store.AppointmentRepo
+	clock        platform.Clock
+	ids          platform.IDGen
+	events       EventPublisher
+
+	// mu guards multi-step invariants (booking, dispatch) so a check-and-set is
+	// atomic across the separate stores. It is the in-memory stand-in for a
+	// database transaction.
+	mu sync.Mutex
 }
 
 // NewService constructs a Service from its collaborators.
-func NewService(timeslots store.TimeslotRepo, clock platform.Clock, ids platform.IDGen) *Service {
+func NewService(d Deps) *Service {
 	return &Service{
-		timeslots: timeslots,
-		clock:     clock,
-		ids:       ids,
+		timeslots:    d.Timeslots,
+		appointments: d.Appointments,
+		clock:        d.Clock,
+		ids:          d.IDGen,
+		events:       d.Events,
 	}
 }

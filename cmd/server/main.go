@@ -36,7 +36,14 @@ func main() {
 
 	// Stores and services (in-memory core; swap for a SQL adapter in production).
 	timeslotStore := memory.NewTimeslotStore()
-	appts := appointments.NewService(timeslotStore, clock, idgen)
+	appointmentStore := memory.NewAppointmentStore()
+	appts := appointments.NewService(appointments.Deps{
+		Timeslots:    timeslotStore,
+		Appointments: appointmentStore,
+		Clock:        clock,
+		IDGen:        idgen,
+		Events:       publisher,
+	})
 
 	// Dev-only actor seed. Production replaces this with a user store / JWT auth.
 	resolver := tenancy.StaticResolver{

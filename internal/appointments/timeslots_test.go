@@ -19,7 +19,13 @@ var testNow = time.Date(2026, 1, 1, 8, 0, 0, 0, time.UTC)
 // store so tests can seed state directly. Ids are deterministic ("ts-1", ...).
 func fixtures() (*Service, *memory.TimeslotStore) {
 	ts := memory.NewTimeslotStore()
-	svc := NewService(ts, platform.NewFakeClock(testNow), platform.NewFakeIDGen("ts-"))
+	svc := NewService(Deps{
+		Timeslots:    ts,
+		Appointments: memory.NewAppointmentStore(),
+		Clock:        platform.NewFakeClock(testNow),
+		IDGen:        platform.NewFakeIDGen("ts-"),
+		Events:       &capturePublisher{},
+	})
 	return svc, ts
 }
 

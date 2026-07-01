@@ -39,11 +39,18 @@ func apiTestResolver() tenancy.StaticResolver {
 func newTestServer() *Server {
 	idgen := platform.NewFakeIDGen("req-")
 	clock := platform.NewFakeClock(apiTestNow)
-	appts := appointments.NewService(memory.NewTimeslotStore(), clock, platform.NewFakeIDGen("ts-"))
+	publisher := events.NewPublisher(events.NewStore(), platform.SystemClock{}, idgen)
+	appts := appointments.NewService(appointments.Deps{
+		Timeslots:    memory.NewTimeslotStore(),
+		Appointments: memory.NewAppointmentStore(),
+		Clock:        clock,
+		IDGen:        platform.NewFakeIDGen("ts-"),
+		Events:       publisher,
+	})
 	return &Server{
 		Logger:        slog.New(slog.NewTextHandler(io.Discard, nil)),
 		IDGen:         idgen,
-		Publisher:     events.NewPublisher(events.NewStore(), platform.SystemClock{}, idgen),
+		Publisher:     publisher,
 		InternalToken: "secret",
 		Resolver:      apiTestResolver(),
 		Appointments:  appts,
