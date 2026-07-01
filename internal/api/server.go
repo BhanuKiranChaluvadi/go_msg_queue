@@ -54,6 +54,8 @@ func (s *Server) Handler() http.Handler {
 	// Appointments — booking (Feature 1).
 	mux.Handle("POST /v1/appointments",
 		authed(tenancy.RequireRole(domain.RolePatient, http.HandlerFunc(s.handleBookAppointment))))
+	mux.Handle("GET /v1/appointments/next",
+		authed(tenancy.RequireRole(domain.RoleDoctor, http.HandlerFunc(s.handleNextAppointments))))
 
 	return Chain(mux, RequestID(s.IDGen), Logging(s.Logger))
 }

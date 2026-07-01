@@ -46,13 +46,16 @@ type Timeslot struct {
 }
 
 // Appointment is a patient's booking of a doctor's timeslot. At most one
-// appointment may exist per patient-doctor pair.
+// appointment may exist per patient-doctor pair. Start/End are copied from the
+// booked timeslot so an appointment carries its own scheduled time.
 type Appointment struct {
 	ID         string            `json:"id"`
 	TenantID   string            `json:"tenantId"`
 	DoctorID   string            `json:"doctorId"`
 	PatientID  string            `json:"patientId"`
 	TimeslotID string            `json:"timeslotId"`
+	Start      time.Time         `json:"start"`
+	End        time.Time         `json:"end"`
 	Status     AppointmentStatus `json:"status"`
 	CreatedAt  time.Time         `json:"createdAt"`
 }

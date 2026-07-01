@@ -86,3 +86,41 @@ func TestBookAppointment_Handler_MultiTenantIsolation(t *testing.T) {
 		t.Errorf("cross-tenant book status = %d, want 404", rec.Code)
 	}
 }
+
+func TestNextAppointments_Handler(t *testing.T) {
+	srv := newTestServer()
+	slot := registerSlot(t, srv, "hosp-A", "doc-a", 1, 2)
+	if rec := doRequest(t, srv, http.MethodPost, "/v1/appointments", "hosp-A", "pat-a", bookReq{"doc-a", slot}); rec.Code != http.StatusCreated {
+		t.Fatalf("book: %d %s", rec.Code, rec.Body.String())
+	}
+
+	// The doctor sees the upcoming appointment.
+	rec := doRequest(t, srv, http.MethodGet, "/v1/appointments/next", "hosp-A", "doc-a", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("next: %d %s", rec.Code, rec.Body.String())
+	}
+	var list []domain.Appointment
+	_ = json.Unmarshal(rec.Body.Bytes(), &list)
+	if len(list) != 1 || list[0].PatientID != "pat-a" {
+		t.Errorf("next list = %+v, want one appt for pat-a", list)
+	}
+
+	// Role + auth checks.
+	if rec := doRequest(t, srv, http.MethodGet, "/v1/appointments/next", "hosp-A", "pat-a", nil); rec.Code != http.StatusForbidden {
+		t.Errorf("patient next status = %d, want 403", rec.Code)
+	}
+	if rec := doRequest(t, srv, http.MethodGet, "/v1/appointments/next", "", "", nil); rec.Code != http.StatusUnauthorized {
+		t.Errorf("unauth next status = %d, want 401", rec.Code)
+	}
+
+	// A doctor in another hospital sees nothing.
+	if rec := doRequest(t, srv, http.MethodGet, "/v1/appointments/next", "hosp-B", "doc-b", nil); rec.Code == http.StatusOK {
+		var other []domain.Appointment
+		_ = json.Unmarshal(rec.Body.Bytes(), &other)
+		if len(other) != 0 {
+			t.Errorf("hosp-B doctor next = %+v, want empty", other)
+		}
+	} else {
+		t.Errorf("hosp-B doctor next status = %d, want 200", rec.Code)
+	}
+}

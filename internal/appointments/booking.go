@@ -60,6 +60,8 @@ func (s *Service) Book(ctx context.Context, in BookInput) (domain.Appointment, e
 		DoctorID:   ts.DoctorID,
 		PatientID:  actor.ID,
 		TimeslotID: ts.ID,
+		Start:      ts.Start,
+		End:        ts.End,
 		Status:     domain.AppointmentScheduled,
 		CreatedAt:  s.clock.Now(),
 	}

@@ -178,11 +178,11 @@ func (st *AppointmentStore) ExistsForPatientDoctor(_ context.Context, tenant, pa
 	return false, nil
 }
 
-// NextForDoctor returns the doctor's appointments occurring at or after from.
+// NextForDoctor returns the doctor's appointments scheduled at or after from.
 func (st *AppointmentStore) NextForDoctor(_ context.Context, tenant, doctorID string, from time.Time) ([]domain.Appointment, error) {
 	out := make([]domain.Appointment, 0)
 	for _, a := range st.s.List(tenant) {
-		if a.DoctorID == doctorID && !a.CreatedAt.Before(from) {
+		if a.DoctorID == doctorID && !a.Start.Before(from) {
 			out = append(out, a)
 		}
 	}

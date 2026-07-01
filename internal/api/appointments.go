@@ -25,3 +25,14 @@ func (s *Server) handleBookAppointment(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusCreated, appt)
 }
+
+// handleNextAppointments lists the calling doctor's upcoming appointments.
+// GET /v1/appointments/next
+func (s *Server) handleNextAppointments(w http.ResponseWriter, r *http.Request) {
+	list, err := s.Appointments.NextAppointments(r.Context())
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, list)
+}
