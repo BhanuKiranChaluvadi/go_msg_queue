@@ -38,7 +38,7 @@ type User struct {
 // Timeslot is a doctor's advertised availability window.
 type Timeslot struct {
 	ID       string         `json:"id"`
-	TenantID string         `json:"tenantId"`
+	TenantID string         `json:"-"`
 	DoctorID string         `json:"doctorId"`
 	Start    time.Time      `json:"start"`
 	End      time.Time      `json:"end"`
@@ -50,7 +50,7 @@ type Timeslot struct {
 // booked timeslot so an appointment carries its own scheduled time.
 type Appointment struct {
 	ID         string            `json:"id"`
-	TenantID   string            `json:"tenantId"`
+	TenantID   string            `json:"-"`
 	DoctorID   string            `json:"doctorId"`
 	PatientID  string            `json:"patientId"`
 	TimeslotID string            `json:"timeslotId"`
@@ -65,7 +65,7 @@ type Appointment struct {
 // when Status is NoteIncomplete.
 type Note struct {
 	ID            string     `json:"id"`
-	TenantID      string     `json:"tenantId"`
+	TenantID      string     `json:"-"`
 	AppointmentID string     `json:"appointmentId"`
 	Text          string     `json:"text"`
 	Source        NoteSource `json:"source"`
@@ -78,7 +78,7 @@ type Note struct {
 // until it is dispatched or it expires.
 type Prescription struct {
 	ID            string             `json:"id"`
-	TenantID      string             `json:"tenantId"`
+	TenantID      string             `json:"-"`
 	AppointmentID string             `json:"appointmentId"`
 	PatientID     string             `json:"patientId"`
 	Medication    string             `json:"medication"`
@@ -126,7 +126,7 @@ func (p Prescription) EffectiveStatus(now time.Time) PrescriptionStatus {
 // via DismissedAt so the clinical history is preserved.
 type Diagnosis struct {
 	ID          string     `json:"id"`
-	TenantID    string     `json:"tenantId"`
+	TenantID    string     `json:"-"`
 	PatientID   string     `json:"patientId"`
 	Disease     string     `json:"disease"`
 	DiagnosedAt time.Time  `json:"diagnosedAt"`
@@ -149,7 +149,7 @@ func (d Diagnosis) IsActiveAt(t time.Time) bool {
 // Webhook is a patient's subscription to receive live event POSTs.
 type Webhook struct {
 	ID         string      `json:"id"`
-	TenantID   string      `json:"tenantId"`
+	TenantID   string      `json:"-"`
 	PatientID  string      `json:"patientId"`
 	URL        string      `json:"url"`
 	EventTypes []EventType `json:"eventTypes"`

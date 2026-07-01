@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -70,8 +71,12 @@ func TestRegisterTimeslot_Handler_AuthAndRoles(t *testing.T) {
 				if err := json.Unmarshal(rec.Body.Bytes(), &ts); err != nil {
 					t.Fatalf("decode: %v", err)
 				}
-				if ts.DoctorID != "doc-a" || ts.TenantID != "hosp-A" || ts.Status != domain.TimeslotOpen {
-					t.Errorf("timeslot = %+v, want doc-a/hosp-A/open", ts)
+				if ts.DoctorID != "doc-a" || ts.Status != domain.TimeslotOpen {
+					t.Errorf("timeslot = %+v, want doc-a/open", ts)
+				}
+				// The internal tenant id is not exposed on the wire.
+				if strings.Contains(rec.Body.String(), "tenantId") {
+					t.Errorf("response leaks tenantId: %s", rec.Body.String())
 				}
 			}
 		})
