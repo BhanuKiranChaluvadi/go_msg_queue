@@ -14,7 +14,7 @@ func (s *Server) handleIssuePrescription(w http.ResponseWriter, r *http.Request)
 		Medication string    `json:"medication"`
 		ExpiresAt  time.Time `json:"expiresAt"`
 	}
-	if err := decodeJSON(r, &body); err != nil {
+	if err := decodeJSON(w, r, &body); err != nil {
 		writeError(w, err)
 		return
 	}

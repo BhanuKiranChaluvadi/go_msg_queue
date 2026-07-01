@@ -3,6 +3,7 @@ package api
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -61,6 +62,56 @@ func TestWriteErrorMapping(t *testing.T) {
 				t.Errorf("internal message leaked: %q", body.Error.Message)
 			}
 		})
+	}
+}
+
+func TestDecodeJSONRejectsBadBodies(t *testing.T) {
+	type payload struct {
+		Name string `json:"name"`
+	}
+	tests := []struct {
+		name string
+		body string
+	}{
+		{"unknown field", `{"name":"ok","extra":1}`},
+		{"malformed", `{"name":`},
+		{"trailing data", `{"name":"ok"}{"name":"two"}`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(tt.body))
+			var dst payload
+			if err := decodeJSON(rec, req, &dst); err == nil || !errors.Is(err, domain.ErrValidation) {
+				t.Fatalf("err = %v, want validation error", err)
+			}
+		})
+	}
+}
+
+func TestDecodeJSONRejectsOversizedBody(t *testing.T) {
+	rec := httptest.NewRecorder()
+	huge := `{"name":"` + strings.Repeat("a", (1<<20)+1) + `"}`
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(huge))
+	var dst struct {
+		Name string `json:"name"`
+	}
+	if err := decodeJSON(rec, req, &dst); err == nil || !errors.Is(err, domain.ErrValidation) {
+		t.Fatalf("err = %v, want validation error for oversized body", err)
+	}
+}
+
+func TestDecodeJSONAcceptsValidBody(t *testing.T) {
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{"name":"ok"}`))
+	var dst struct {
+		Name string `json:"name"`
+	}
+	if err := decodeJSON(rec, req, &dst); err != nil {
+		t.Fatalf("decodeJSON: %v", err)
+	}
+	if dst.Name != "ok" {
+		t.Errorf("name = %q, want ok", dst.Name)
 	}
 }
 

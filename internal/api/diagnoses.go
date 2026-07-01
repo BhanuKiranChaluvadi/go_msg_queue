@@ -8,7 +8,7 @@ func (s *Server) handleDiagnose(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Disease string `json:"disease"`
 	}
-	if err := decodeJSON(r, &body); err != nil {
+	if err := decodeJSON(w, r, &body); err != nil {
 		writeError(w, err)
 		return
 	}

@@ -12,7 +12,7 @@ func (s *Server) handleAddNote(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Text string `json:"text"`
 	}
-	if err := decodeJSON(r, &body); err != nil {
+	if err := decodeJSON(w, r, &body); err != nil {
 		writeError(w, err)
 		return
 	}

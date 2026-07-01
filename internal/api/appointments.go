@@ -13,7 +13,7 @@ func (s *Server) handleBookAppointment(w http.ResponseWriter, r *http.Request) {
 		DoctorID   string `json:"doctorId"`
 		TimeslotID string `json:"timeslotId"`
 	}
-	if err := decodeJSON(r, &body); err != nil {
+	if err := decodeJSON(w, r, &body); err != nil {
 		writeError(w, err)
 		return
 	}

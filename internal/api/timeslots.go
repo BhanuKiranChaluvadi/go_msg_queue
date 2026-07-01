@@ -14,7 +14,7 @@ func (s *Server) handleRegisterTimeslot(w http.ResponseWriter, r *http.Request) 
 		Start time.Time `json:"start"`
 		End   time.Time `json:"end"`
 	}
-	if err := decodeJSON(r, &body); err != nil {
+	if err := decodeJSON(w, r, &body); err != nil {
 		writeError(w, err)
 		return
 	}

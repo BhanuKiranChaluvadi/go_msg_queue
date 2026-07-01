@@ -14,7 +14,7 @@ func (s *Server) handleRegisterWebhook(w http.ResponseWriter, r *http.Request) {
 		URL        string             `json:"url"`
 		EventTypes []domain.EventType `json:"eventTypes"`
 	}
-	if err := decodeJSON(r, &body); err != nil {
+	if err := decodeJSON(w, r, &body); err != nil {
 		writeError(w, err)
 		return
 	}
