@@ -1,6 +1,6 @@
-// Package api wires the medconnect HTTP service: request routing and the
-// server lifecycle (start + graceful shutdown). Feature routes are added in
-// later slices; Task 0.1 registers only the health check.
+// Package api wires the medconnect HTTP hub: request routing, cross-cutting
+// middleware, and the server lifecycle (start + graceful shutdown). Feature
+// routes and dependencies are added to Server in later slices.
 package api
 
 import (
@@ -10,19 +10,33 @@ import (
 	"net"
 	"net/http"
 	"time"
+
+	"medconnect/internal/events"
+	"medconnect/internal/platform"
 )
 
 // shutdownTimeout bounds how long a graceful shutdown waits for in-flight
 // requests to complete before the server is forced closed.
 const shutdownTimeout = 10 * time.Second
 
-// NewHandler builds the HTTP handler with all routes registered. It uses the
-// method+path pattern support in net/http.ServeMux (Go 1.22+), so no external
-// router dependency is required.
-func NewHandler() http.Handler {
+// Server holds the hub's dependencies and builds its HTTP handler. It is the
+// composition root's view of the service; feature stores and services are added
+// as fields in later slices.
+type Server struct {
+	Logger        *slog.Logger
+	IDGen         platform.IDGen
+	Publisher     *events.Publisher
+	InternalToken string
+}
+
+// Handler builds the fully-wrapped HTTP handler: routes plus the request-id and
+// logging middleware. It uses net/http.ServeMux method+path patterns (Go 1.22+),
+// so no router dependency is required.
+func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", handleHealthz)
-	return mux
+	mux.Handle("GET /internal/events", s.internalAuth(http.HandlerFunc(s.handleInternalEvents)))
+	return Chain(mux, RequestID(s.IDGen), Logging(s.Logger))
 }
 
 // handleHealthz reports service liveness.
@@ -32,12 +46,12 @@ func handleHealthz(w http.ResponseWriter, _ *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 }
 
-// Serve runs the HTTP server on ln until ctx is cancelled, then shuts it down
-// gracefully, draining in-flight requests. It returns nil on a clean shutdown
-// and a non-nil error if the server fails to serve.
-func Serve(ctx context.Context, ln net.Listener, logger *slog.Logger) error {
+// Serve runs h on ln until ctx is cancelled, then shuts down gracefully,
+// draining in-flight requests. It returns nil on a clean shutdown and a non-nil
+// error if the server fails to serve.
+func Serve(ctx context.Context, ln net.Listener, h http.Handler, logger *slog.Logger) error {
 	srv := &http.Server{
-		Handler:           NewHandler(),
+		Handler:           h,
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 

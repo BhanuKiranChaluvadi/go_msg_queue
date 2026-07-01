@@ -32,6 +32,27 @@ func (p *Publisher) Subscribe(s Subscriber) {
 	p.subs = append(p.subs, s)
 }
 
+// Unsubscribe removes a previously registered subscriber (by identity). It is
+// safe to call for an unknown subscriber. Used to clean up disconnected SSE
+// clients so a lingering subscriber cannot accumulate.
+func (p *Publisher) Unsubscribe(target Subscriber) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for i, s := range p.subs {
+		if s == target {
+			p.subs = append(p.subs[:i], p.subs[i+1:]...)
+			return
+		}
+	}
+}
+
+// SubscriberCount reports how many subscribers are currently registered.
+func (p *Publisher) SubscriberCount() int {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return len(p.subs)
+}
+
 // Publish stamps, stores, and fans out e, returning the enriched event so the
 // caller can reference its id and timestamp.
 func (p *Publisher) Publish(ctx context.Context, e domain.Event) domain.Event {

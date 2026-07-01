@@ -10,13 +10,28 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"medconnect/internal/events"
+	"medconnect/internal/platform"
 )
+
+// newTestServer builds a Server with quiet logging and deterministic ids for use
+// in api tests.
+func newTestServer() *Server {
+	idgen := platform.NewFakeIDGen("req-")
+	return &Server{
+		Logger:        slog.New(slog.NewTextHandler(io.Discard, nil)),
+		IDGen:         idgen,
+		Publisher:     events.NewPublisher(events.NewStore(), platform.SystemClock{}, idgen),
+		InternalToken: "secret",
+	}
+}
 
 func TestHealthz(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
 	rec := httptest.NewRecorder()
 
-	NewHandler().ServeHTTP(rec, req)
+	newTestServer().Handler().ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
@@ -38,7 +53,7 @@ func TestServeGracefulShutdown(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	go func() { done <- Serve(ctx, ln, logger) }()
+	go func() { done <- Serve(ctx, ln, newTestServer().Handler(), logger) }()
 
 	// The server should become reachable and answer the health check.
 	url := "http://" + ln.Addr().String() + "/healthz"

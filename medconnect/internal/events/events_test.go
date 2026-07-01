@@ -126,6 +126,31 @@ func TestPublisherConcurrent(t *testing.T) {
 	}
 }
 
+func TestPublisherUnsubscribe(t *testing.T) {
+	ctx := context.Background()
+	pub := NewPublisher(NewStore(), platform.NewFakeClock(time.Now()), platform.NewFakeIDGen("ev-"))
+	sub := &captureSub{}
+
+	pub.Subscribe(sub)
+	if pub.SubscriberCount() != 1 {
+		t.Fatalf("count after subscribe = %d, want 1", pub.SubscriberCount())
+	}
+	pub.Publish(ctx, domain.Event{TenantID: "A", Type: domain.EventNoteAdded})
+
+	pub.Unsubscribe(sub)
+	if pub.SubscriberCount() != 0 {
+		t.Fatalf("count after unsubscribe = %d, want 0", pub.SubscriberCount())
+	}
+	pub.Publish(ctx, domain.Event{TenantID: "A", Type: domain.EventNoteAdded})
+
+	// Only the first publish reached the subscriber.
+	if got := len(sub.events()); got != 1 {
+		t.Errorf("subscriber saw %d events after unsubscribe, want 1", got)
+	}
+	// Unsubscribing an unknown subscriber is a no-op.
+	pub.Unsubscribe(&captureSub{})
+}
+
 func ids(evs []domain.Event) []string {
 	out := make([]string, len(evs))
 	for i, e := range evs {
