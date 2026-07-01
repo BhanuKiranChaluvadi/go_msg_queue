@@ -44,6 +44,7 @@ func newTestServer() *Server {
 	appts := appointments.NewService(appointments.Deps{
 		Timeslots:    memory.NewTimeslotStore(),
 		Appointments: memory.NewAppointmentStore(),
+		Notes:        memory.NewNoteStore(),
 		Clock:        clock,
 		IDGen:        platform.NewFakeIDGen("ts-"),
 		Events:       publisher,

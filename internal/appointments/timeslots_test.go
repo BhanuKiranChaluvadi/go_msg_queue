@@ -22,6 +22,7 @@ func fixtures() (*Service, *memory.TimeslotStore) {
 	svc := NewService(Deps{
 		Timeslots:    ts,
 		Appointments: memory.NewAppointmentStore(),
+		Notes:        memory.NewNoteStore(),
 		Clock:        platform.NewFakeClock(testNow),
 		IDGen:        platform.NewFakeIDGen("ts-"),
 		Events:       &capturePublisher{},

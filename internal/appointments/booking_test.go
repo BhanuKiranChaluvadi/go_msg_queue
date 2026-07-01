@@ -46,6 +46,7 @@ func bookingFixtures() (*Service, *memory.TimeslotStore, *memory.AppointmentStor
 	svc := NewService(Deps{
 		Timeslots:    tsStore,
 		Appointments: apptStore,
+		Notes:        memory.NewNoteStore(),
 		Clock:        platform.NewFakeClock(testNow),
 		IDGen:        platform.NewFakeIDGen("ap-"),
 		Events:       pub,

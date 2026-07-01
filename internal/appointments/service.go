@@ -25,6 +25,7 @@ type EventPublisher interface {
 type Deps struct {
 	Timeslots    store.TimeslotRepo
 	Appointments store.AppointmentRepo
+	Notes        store.NoteRepo
 	Clock        platform.Clock
 	IDGen        platform.IDGen
 	Events       EventPublisher
@@ -36,6 +37,7 @@ type Deps struct {
 type Service struct {
 	timeslots    store.TimeslotRepo
 	appointments store.AppointmentRepo
+	notes        store.NoteRepo
 	clock        platform.Clock
 	ids          platform.IDGen
 	events       EventPublisher
@@ -51,6 +53,7 @@ func NewService(d Deps) *Service {
 	return &Service{
 		timeslots:    d.Timeslots,
 		appointments: d.Appointments,
+		notes:        d.Notes,
 		clock:        d.Clock,
 		ids:          d.IDGen,
 		events:       d.Events,

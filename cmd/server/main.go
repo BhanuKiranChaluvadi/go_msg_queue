@@ -37,9 +37,11 @@ func main() {
 	// Stores and services (in-memory core; swap for a SQL adapter in production).
 	timeslotStore := memory.NewTimeslotStore()
 	appointmentStore := memory.NewAppointmentStore()
+	noteStore := memory.NewNoteStore()
 	appts := appointments.NewService(appointments.Deps{
 		Timeslots:    timeslotStore,
 		Appointments: appointmentStore,
+		Notes:        noteStore,
 		Clock:        clock,
 		IDGen:        idgen,
 		Events:       publisher,
