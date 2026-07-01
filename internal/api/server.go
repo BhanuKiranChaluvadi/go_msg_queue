@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"time"
 
+	"medconnect/internal/analytics"
 	"medconnect/internal/appointments"
 	"medconnect/internal/audit"
 	"medconnect/internal/clinical"
@@ -39,6 +40,7 @@ type Server struct {
 	Transcription TranscriptionStarter
 	Clinical      *clinical.Service
 	Audit         *audit.Service
+	Analytics     *analytics.Service
 }
 
 // Handler builds the fully-wrapped HTTP handler: routes plus the request-id and
@@ -95,6 +97,10 @@ func (s *Server) Handler() http.Handler {
 	// Audit trail (Feature 6).
 	mux.Handle("GET /v1/audit",
 		authed(tenancy.RequireRole(domain.RoleDoctor, http.HandlerFunc(s.handleAuditQuery))))
+
+	// Usage analytics (Feature 7).
+	mux.Handle("GET /v1/analytics",
+		authed(tenancy.RequireRole(domain.RoleDoctor, http.HandlerFunc(s.handleAnalytics))))
 
 	return Chain(mux, RequestID(s.IDGen), Logging(s.Logger))
 }

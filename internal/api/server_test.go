@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"medconnect/internal/analytics"
 	"medconnect/internal/appointments"
 	"medconnect/internal/audit"
 	"medconnect/internal/clinical"
@@ -79,6 +80,7 @@ func newTestServer() *Server {
 		Webhooks:      webhooks.NewRegistry(memory.NewWebhookStore(), platform.NewFakeIDGen("wh-")),
 		Clinical:      clinicalSvc,
 		Audit:         audit.NewService(eventStore),
+		Analytics:     analytics.NewService(eventStore),
 	}
 }
 

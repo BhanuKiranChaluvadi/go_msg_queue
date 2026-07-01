@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"medconnect/internal/analytics"
 	"medconnect/internal/api"
 	"medconnect/internal/appointments"
 	"medconnect/internal/audit"
@@ -58,6 +59,7 @@ func main() {
 	})
 	webhookRegistry := webhooks.NewRegistry(memory.NewWebhookStore(), idgen)
 	auditSvc := audit.NewService(eventStore)
+	analyticsSvc := analytics.NewService(eventStore)
 
 	clinicalSvc := clinical.NewService(clinical.Deps{
 		Diagnoses:     memory.NewDiagnosisStore(),
@@ -95,6 +97,7 @@ func main() {
 		Transcription: transcriptionMgr,
 		Clinical:      clinicalSvc,
 		Audit:         auditSvc,
+		Analytics:     analyticsSvc,
 	}
 
 	// Live updates: the dispatcher delivers events to patient webhooks. In embedded
