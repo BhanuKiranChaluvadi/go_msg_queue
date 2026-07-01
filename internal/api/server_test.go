@@ -28,6 +28,7 @@ func apiTestResolver() tenancy.StaticResolver {
 	return tenancy.StaticResolver{
 		"doc-a":   {ID: "doc-a", TenantID: "hosp-A", Role: domain.RoleDoctor},
 		"pat-a":   {ID: "pat-a", TenantID: "hosp-A", Role: domain.RolePatient},
+		"pat-a2":  {ID: "pat-a2", TenantID: "hosp-A", Role: domain.RolePatient},
 		"pharm-a": {ID: "pharm-a", TenantID: "hosp-A", Role: domain.RolePharmacist},
 		"doc-b":   {ID: "doc-b", TenantID: "hosp-B", Role: domain.RoleDoctor},
 		"pat-b":   {ID: "pat-b", TenantID: "hosp-B", Role: domain.RolePatient},
