@@ -152,10 +152,12 @@ needs `curl` and `jq`, and expects a freshly started server (the booking step
 only succeeds on a clean store — see the note above). Sample output:
 
 ```text
-══ 3. Patient books the slot ══
-  ✓ PASS appointment booked (HTTP 201)
+▶ Step 3 — The patient books the 09:00–10:00 appointment (1 hour)
+  The patient reserves Dr. "doctor"'s slot on 2027-03-01. Booking is atomic...
+  ✓ PASS the appointment is booked (HTTP 201)
 ...
-══ 8. Can the patient or doctor update the appointment? ══
+▶ Step 8 — Can the appointment be changed after booking?
+  No — a booked appointment is immutable in this design; there is no 'update' endpoint.
   ✓ PASS doctor PATCH is rejected (HTTP 405)
   ✓ PASS patient PUT is rejected (HTTP 405)
   supported methods on this route: GET, HEAD (read-only)
