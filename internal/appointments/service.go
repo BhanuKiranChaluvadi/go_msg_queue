@@ -23,24 +23,26 @@ type EventPublisher interface {
 // Deps groups the Service's collaborators. Using a struct keeps the constructor
 // stable as more repositories are added in later slices.
 type Deps struct {
-	Timeslots    store.TimeslotRepo
-	Appointments store.AppointmentRepo
-	Notes        store.NoteRepo
-	Clock        platform.Clock
-	IDGen        platform.IDGen
-	Events       EventPublisher
+	Timeslots     store.TimeslotRepo
+	Appointments  store.AppointmentRepo
+	Notes         store.NoteRepo
+	Prescriptions store.PrescriptionRepo
+	Clock         platform.Clock
+	IDGen         platform.IDGen
+	Events        EventPublisher
 }
 
 // Service implements appointment-management use cases. Dependencies are injected
 // as interfaces (dependency inversion) so the concrete stores, clock, id
 // generator, and event publisher can vary without touching business logic.
 type Service struct {
-	timeslots    store.TimeslotRepo
-	appointments store.AppointmentRepo
-	notes        store.NoteRepo
-	clock        platform.Clock
-	ids          platform.IDGen
-	events       EventPublisher
+	timeslots     store.TimeslotRepo
+	appointments  store.AppointmentRepo
+	notes         store.NoteRepo
+	prescriptions store.PrescriptionRepo
+	clock         platform.Clock
+	ids           platform.IDGen
+	events        EventPublisher
 
 	// mu guards multi-step invariants (booking, dispatch) so a check-and-set is
 	// atomic across the separate stores. It is the in-memory stand-in for a
@@ -51,11 +53,12 @@ type Service struct {
 // NewService constructs a Service from its collaborators.
 func NewService(d Deps) *Service {
 	return &Service{
-		timeslots:    d.Timeslots,
-		appointments: d.Appointments,
-		notes:        d.Notes,
-		clock:        d.Clock,
-		ids:          d.IDGen,
-		events:       d.Events,
+		timeslots:     d.Timeslots,
+		appointments:  d.Appointments,
+		notes:         d.Notes,
+		prescriptions: d.Prescriptions,
+		clock:         d.Clock,
+		ids:           d.IDGen,
+		events:        d.Events,
 	}
 }

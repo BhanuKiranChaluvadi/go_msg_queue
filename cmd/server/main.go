@@ -38,13 +38,15 @@ func main() {
 	timeslotStore := memory.NewTimeslotStore()
 	appointmentStore := memory.NewAppointmentStore()
 	noteStore := memory.NewNoteStore()
+	prescriptionStore := memory.NewPrescriptionStore()
 	appts := appointments.NewService(appointments.Deps{
-		Timeslots:    timeslotStore,
-		Appointments: appointmentStore,
-		Notes:        noteStore,
-		Clock:        clock,
-		IDGen:        idgen,
-		Events:       publisher,
+		Timeslots:     timeslotStore,
+		Appointments:  appointmentStore,
+		Notes:         noteStore,
+		Prescriptions: prescriptionStore,
+		Clock:         clock,
+		IDGen:         idgen,
+		Events:        publisher,
 	})
 
 	// Dev-only actor seed. Production replaces this with a user store / JWT auth.

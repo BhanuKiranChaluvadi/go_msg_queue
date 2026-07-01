@@ -15,12 +15,13 @@ func noteFixtures() (*Service, *memory.AppointmentStore, *memory.NoteStore, *cap
 	noteStore := memory.NewNoteStore()
 	pub := &capturePublisher{}
 	svc := NewService(Deps{
-		Timeslots:    memory.NewTimeslotStore(),
-		Appointments: apptStore,
-		Notes:        noteStore,
-		Clock:        platform.NewFakeClock(testNow),
-		IDGen:        platform.NewFakeIDGen("nt-"),
-		Events:       pub,
+		Timeslots:     memory.NewTimeslotStore(),
+		Appointments:  apptStore,
+		Notes:         noteStore,
+		Prescriptions: memory.NewPrescriptionStore(),
+		Clock:         platform.NewFakeClock(testNow),
+		IDGen:         platform.NewFakeIDGen("nt-"),
+		Events:        pub,
 	})
 	return svc, apptStore, noteStore, pub
 }

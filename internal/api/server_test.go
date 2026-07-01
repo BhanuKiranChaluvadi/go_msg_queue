@@ -42,12 +42,13 @@ func newTestServer() *Server {
 	clock := platform.NewFakeClock(apiTestNow)
 	publisher := events.NewPublisher(events.NewStore(), platform.SystemClock{}, idgen)
 	appts := appointments.NewService(appointments.Deps{
-		Timeslots:    memory.NewTimeslotStore(),
-		Appointments: memory.NewAppointmentStore(),
-		Notes:        memory.NewNoteStore(),
-		Clock:        clock,
-		IDGen:        platform.NewFakeIDGen("ts-"),
-		Events:       publisher,
+		Timeslots:     memory.NewTimeslotStore(),
+		Appointments:  memory.NewAppointmentStore(),
+		Notes:         memory.NewNoteStore(),
+		Prescriptions: memory.NewPrescriptionStore(),
+		Clock:         clock,
+		IDGen:         platform.NewFakeIDGen("ts-"),
+		Events:        publisher,
 	})
 	return &Server{
 		Logger:        slog.New(slog.NewTextHandler(io.Discard, nil)),

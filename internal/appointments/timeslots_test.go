@@ -20,12 +20,13 @@ var testNow = time.Date(2026, 1, 1, 8, 0, 0, 0, time.UTC)
 func fixtures() (*Service, *memory.TimeslotStore) {
 	ts := memory.NewTimeslotStore()
 	svc := NewService(Deps{
-		Timeslots:    ts,
-		Appointments: memory.NewAppointmentStore(),
-		Notes:        memory.NewNoteStore(),
-		Clock:        platform.NewFakeClock(testNow),
-		IDGen:        platform.NewFakeIDGen("ts-"),
-		Events:       &capturePublisher{},
+		Timeslots:     ts,
+		Appointments:  memory.NewAppointmentStore(),
+		Notes:         memory.NewNoteStore(),
+		Prescriptions: memory.NewPrescriptionStore(),
+		Clock:         platform.NewFakeClock(testNow),
+		IDGen:         platform.NewFakeIDGen("ts-"),
+		Events:        &capturePublisher{},
 	})
 	return svc, ts
 }
