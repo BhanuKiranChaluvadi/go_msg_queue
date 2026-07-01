@@ -16,6 +16,7 @@ import (
 
 	"medconnect/internal/api"
 	"medconnect/internal/appointments"
+	"medconnect/internal/clinical"
 	"medconnect/internal/domain"
 	"medconnect/internal/events"
 	"medconnect/internal/platform"
@@ -55,6 +56,16 @@ func main() {
 	})
 	webhookRegistry := webhooks.NewRegistry(memory.NewWebhookStore(), idgen)
 
+	clinicalSvc := clinical.NewService(clinical.Deps{
+		Diagnoses:     memory.NewDiagnosisStore(),
+		Appointments:  appointmentStore,
+		Notes:         noteStore,
+		Prescriptions: prescriptionStore,
+		Clock:         clock,
+		IDGen:         idgen,
+		Events:        publisher,
+	})
+
 	// Transcription worker: consumes the external SSE stream and stores dictated
 	// notes. appts satisfies transcription.NoteStore.
 	transcriptionMgr := transcription.NewManager(transcription.Config{
@@ -79,6 +90,7 @@ func main() {
 		Appointments:  appts,
 		Webhooks:      webhookRegistry,
 		Transcription: transcriptionMgr,
+		Clinical:      clinicalSvc,
 	}
 
 	// Live updates: the dispatcher delivers events to patient webhooks. In embedded

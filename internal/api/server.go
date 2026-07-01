@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"medconnect/internal/appointments"
+	"medconnect/internal/clinical"
 	"medconnect/internal/domain"
 	"medconnect/internal/events"
 	"medconnect/internal/platform"
@@ -35,6 +36,7 @@ type Server struct {
 	Appointments  *appointments.Service
 	Webhooks      *webhooks.Registry
 	Transcription TranscriptionStarter
+	Clinical      *clinical.Service
 }
 
 // Handler builds the fully-wrapped HTTP handler: routes plus the request-id and
@@ -79,6 +81,12 @@ func (s *Server) Handler() http.Handler {
 		authed(tenancy.RequireRole(domain.RolePharmacist, http.HandlerFunc(s.handleListActivePrescriptions))))
 	mux.Handle("POST /v1/prescriptions/{id}/dispatch",
 		authed(tenancy.RequireRole(domain.RolePharmacist, http.HandlerFunc(s.handleDispatchPrescription))))
+
+	// Historical overview — diagnoses (Feature 4).
+	mux.Handle("POST /v1/patients/{id}/diagnoses",
+		authed(tenancy.RequireRole(domain.RoleDoctor, http.HandlerFunc(s.handleDiagnose))))
+	mux.Handle("DELETE /v1/patients/{id}/diagnoses/{did}",
+		authed(tenancy.RequireRole(domain.RoleDoctor, http.HandlerFunc(s.handleDismissDiagnosis))))
 
 	return Chain(mux, RequestID(s.IDGen), Logging(s.Logger))
 }

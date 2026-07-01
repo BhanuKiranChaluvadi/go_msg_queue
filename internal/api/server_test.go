@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"medconnect/internal/appointments"
+	"medconnect/internal/clinical"
 	"medconnect/internal/domain"
 	"medconnect/internal/events"
 	"medconnect/internal/platform"
@@ -43,13 +44,27 @@ func newTestServer() *Server {
 	idgen := platform.NewFakeIDGen("req-")
 	clock := platform.NewFakeClock(apiTestNow)
 	publisher := events.NewPublisher(events.NewStore(), platform.SystemClock{}, idgen)
+
+	// Shared stores so the clinical overview reads what the appointment endpoints write.
+	apptStore := memory.NewAppointmentStore()
+	noteStore := memory.NewNoteStore()
+	rxStore := memory.NewPrescriptionStore()
 	appts := appointments.NewService(appointments.Deps{
 		Timeslots:     memory.NewTimeslotStore(),
-		Appointments:  memory.NewAppointmentStore(),
-		Notes:         memory.NewNoteStore(),
-		Prescriptions: memory.NewPrescriptionStore(),
+		Appointments:  apptStore,
+		Notes:         noteStore,
+		Prescriptions: rxStore,
 		Clock:         clock,
 		IDGen:         platform.NewFakeIDGen("ts-"),
+		Events:        publisher,
+	})
+	clinicalSvc := clinical.NewService(clinical.Deps{
+		Diagnoses:     memory.NewDiagnosisStore(),
+		Appointments:  apptStore,
+		Notes:         noteStore,
+		Prescriptions: rxStore,
+		Clock:         clock,
+		IDGen:         platform.NewFakeIDGen("dx-"),
 		Events:        publisher,
 	})
 	return &Server{
@@ -60,6 +75,7 @@ func newTestServer() *Server {
 		Resolver:      apiTestResolver(),
 		Appointments:  appts,
 		Webhooks:      webhooks.NewRegistry(memory.NewWebhookStore(), platform.NewFakeIDGen("wh-")),
+		Clinical:      clinicalSvc,
 	}
 }
 
