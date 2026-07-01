@@ -1,7 +1,0 @@
-The quick brown fox jumps over the lazy dog.
-Pack my box with five dozen liquor jugs.
-
-Lines above and below are intentionally blank to exercise empty-line fidelity.
-
-1234567890 !@#$%^&*()_+-=[]{};':",.<>/?
-The pipeline must reproduce this file byte-for-byte.
